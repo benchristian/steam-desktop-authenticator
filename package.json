@@ -1,0 +1,59 @@
+{
+  "name": "steam-desktop-authenticator",
+  "version": "2.0.0",
+  "description": "Steam Desktop Authenticator for macOS — 通过 Steam 登录直接绑定验证器，无需手动提取密钥",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "start:app": "electron-builder --mac dir && cp Assets.car dist/mac-arm64/*.app/Contents/Resources/ && open dist/mac-arm64/*.app",
+    "build": "electron-builder --mac",
+    "build:dmg": "electron-builder --mac dmg",
+    "build:zip": "electron-builder --mac zip"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^42.4.1",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.steam.desktop-authenticator",
+    "productName": "Steam桌面令牌",
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "icon.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "${productName}-${version}-mac.${ext}"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "renderer.js",
+      "bind.html",
+      "bind-renderer.js",
+      "confirmation.html",
+      "confirmation-renderer.js",
+      "steam-relogin.html",
+      "steam-totp.js",
+      "styles.css",
+      "icon.png",
+      "icon.icns",
+      "custom-avatars/**/*",
+      "node_modules/**/*"
+    ]
+  },
+  "dependencies": {
+    "@multiavatar/multiavatar": "^1.0.7",
+    "chrome-remote-interface": "^0.34.0",
+    "jsqr": "^1.4.0",
+    "request": "^2.88.2",
+    "steam-session": "^1.9.4",
+    "steam-totp": "^2.1.2",
+    "steamcommunity": "^3.50.0",
+    "ws": "^8.21.0"
+  }
+}

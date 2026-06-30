@@ -1,0 +1,169 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - heading "Checkout" [level=1] [ref=e6]
+      - link "Continue shopping" [ref=e8] [cursor=pointer]:
+        - /url: https://craftwork.gumroad.com/
+  - generic [ref=e10]:
+    - generic [ref=e11]:
+      - list [ref=e12]:
+        - listitem [ref=e13]:
+          - generic [ref=e14]:
+            - generic [ref=e15]:
+              - figure [ref=e16]:
+                - link [ref=e17] [cursor=pointer]:
+                  - /url: https://craftwork.gumroad.com/l/ffzqlc
+                  - img [ref=e18]
+              - generic [ref=e19]:
+                - generic [ref=e20]: "Qty: 1"
+                - text: "1"
+            - generic [ref=e21]:
+              - heading "Userpics" [level=4] [ref=e22]:
+                - link "Userpics" [ref=e23] [cursor=pointer]:
+                  - /url: https://craftwork.gumroad.com/l/ffzqlc
+              - link "Craftwork" [ref=e24] [cursor=pointer]:
+                - /url: https://craftwork.gumroad.com
+              - generic [ref=e26]:
+                - button "Edit" [ref=e28] [cursor=pointer]
+                - button "Remove" [ref=e29] [cursor=pointer]
+            - generic "Price" [ref=e31]: US$0
+        - generic [ref=e34] [cursor=pointer]:
+          - switch "Give as a gift?" [ref=e36]
+          - heading "Give as a gift?" [level=4] [ref=e37]
+      - list [ref=e38]:
+        - generic [ref=e39]:
+          - generic [ref=e268]:
+            - heading "Subtotal" [level=4] [ref=e269]
+            - generic [ref=e270]: US$0
+          - generic [ref=e43]:
+            - textbox "Discount code" [disabled] [ref=e44]
+            - button "Apply" [disabled] [ref=e45]
+        - contentinfo [ref=e271]:
+          - generic [ref=e272]:
+            - heading "Total" [level=4] [ref=e273]
+            - generic [ref=e274]: US$0
+      - generic [ref=e50]:
+        - heading "Customers who bought this item also bought" [level=2] [ref=e51]
+        - generic [ref=e53]:
+          - article [ref=e54]:
+            - figure [ref=e55]:
+              - img [ref=e56]
+            - generic [ref=e57]:
+              - link "Free Control Illustrations" [ref=e58] [cursor=pointer]:
+                - /url: https://craftwork.gumroad.com/l/ZWiR?layout=profile&recommended_by=more_like_this&recommender_model_name=sales
+                - heading "Free Control Illustrations" [level=4] [ref=e59]
+              - link "Craftwork Top creator" [ref=e60] [cursor=pointer]:
+                - /url: https://craftwork.gumroad.com?recommended_by=more_like_this
+                - img [ref=e61]
+                - text: Craftwork
+                - generic [ref=e63]:
+                  - img [ref=e64]
+                  - generic [ref=e69]: Top creator
+              - generic "Rating" [ref=e70]:
+                - img [ref=e71]
+                - generic [ref=e73]: "4.9"
+                - generic "4.9 ratings" [ref=e74]: (322)
+            - generic [ref=e79]: $0+
+          - article [ref=e82]:
+            - figure [ref=e83]:
+              - img [ref=e84]
+            - generic [ref=e85]:
+              - link "Depository of Design Resources" [ref=e86] [cursor=pointer]:
+                - /url: https://craftwork.gumroad.com/l/depository?layout=profile&recommended_by=more_like_this&recommender_model_name=sales
+                - heading "Depository of Design Resources" [level=4] [ref=e87]
+              - link "Craftwork Top creator" [ref=e88] [cursor=pointer]:
+                - /url: https://craftwork.gumroad.com?recommended_by=more_like_this
+                - img [ref=e89]
+                - text: Craftwork
+                - generic [ref=e91]:
+                  - img [ref=e92]
+                  - generic [ref=e97]: Top creator
+              - generic "Rating" [ref=e98]:
+                - img [ref=e99]
+                - generic [ref=e101]: "5.0"
+                - generic "5 ratings" [ref=e102]: (5)
+            - generic [ref=e107]: $0+
+          - article [ref=e110]:
+            - figure [ref=e111]:
+              - img [ref=e112]
+            - generic [ref=e113]:
+              - link "Stubborn Illustrations Generator" [ref=e114] [cursor=pointer]:
+                - /url: https://craftwork.gumroad.com/l/rgLyl?layout=profile&recommended_by=more_like_this&recommender_model_name=sales
+                - heading "Stubborn Illustrations Generator" [level=4] [ref=e115]
+              - link "Craftwork Top creator" [ref=e116] [cursor=pointer]:
+                - /url: https://craftwork.gumroad.com?recommended_by=more_like_this
+                - img [ref=e117]
+                - text: Craftwork
+                - generic [ref=e119]:
+                  - img [ref=e120]
+                  - generic [ref=e125]: Top creator
+              - generic "Rating" [ref=e126]:
+                - img [ref=e127]
+                - generic [ref=e129]: "4.8"
+                - generic "4.8 ratings" [ref=e130]: (356)
+            - generic [ref=e135]: $0+
+          - article [ref=e138]:
+            - figure [ref=e139]:
+              - img [ref=e140]
+            - generic [ref=e141]:
+              - link "Ultima Illustration Bundle by Storytale" [ref=e142] [cursor=pointer]:
+                - /url: https://craftwork.gumroad.com/l/ultima?layout=profile&recommended_by=more_like_this&recommender_model_name=sales
+                - heading "Ultima Illustration Bundle by Storytale" [level=4] [ref=e143]
+              - link "Craftwork Top creator" [ref=e144] [cursor=pointer]:
+                - /url: https://craftwork.gumroad.com?recommended_by=more_like_this
+                - img [ref=e145]
+                - text: Craftwork
+                - generic [ref=e147]:
+                  - img [ref=e148]
+                  - generic [ref=e153]: Top creator
+              - generic "Rating" [ref=e154]:
+                - img [ref=e155]
+                - generic [ref=e157]: "4.8"
+                - generic "4.8 ratings" [ref=e158]: (84)
+            - generic [ref=e163]: $0+
+          - article [ref=e166]:
+            - figure [ref=e167]:
+              - img [ref=e168]
+            - generic [ref=e169]:
+              - link "Clickons" [ref=e170] [cursor=pointer]:
+                - /url: https://craftwork.gumroad.com/l/fhugwg?layout=profile&recommended_by=more_like_this&recommender_model_name=sales
+                - heading "Clickons" [level=4] [ref=e171]
+              - link "Craftwork Top creator" [ref=e172] [cursor=pointer]:
+                - /url: https://craftwork.gumroad.com?recommended_by=more_like_this
+                - img [ref=e173]
+                - text: Craftwork
+                - generic [ref=e175]:
+                  - img [ref=e176]
+                  - generic [ref=e181]: Top creator
+            - generic [ref=e186]: $0+
+          - article [ref=e189]:
+            - figure [ref=e190]:
+              - img [ref=e191]
+            - generic [ref=e192]:
+              - link "Smash Illustrations" [ref=e193] [cursor=pointer]:
+                - /url: https://craftwork.gumroad.com/l/zKCep?layout=profile&recommended_by=more_like_this&recommender_model_name=sales
+                - heading "Smash Illustrations" [level=4] [ref=e194]
+              - link "Craftwork Top creator" [ref=e195] [cursor=pointer]:
+                - /url: https://craftwork.gumroad.com?recommended_by=more_like_this
+                - img [ref=e196]
+                - text: Craftwork
+                - generic [ref=e198]:
+                  - img [ref=e199]
+                  - generic [ref=e204]: Top creator
+              - generic "Rating" [ref=e205]:
+                - img [ref=e206]
+                - generic [ref=e208]: "4.8"
+                - generic "4.8 ratings" [ref=e209]: (302)
+            - generic [ref=e214]: $0+
+    - generic "Payment form" [ref=e217]:
+      - generic [ref=e220]:
+        - heading "Contact information" [level=4] [ref=e221]
+        - group "Email address" [ref=e222]:
+          - generic [ref=e224] [cursor=pointer]: Email address
+          - textbox "Email address" [disabled] [ref=e227]: user@example.com
+      - button "Processing..." [disabled] [ref=e278]
+      - iframe [ref=e281]:
+        - generic [ref=f26e6]:
+          - text: 由
+          - strong [ref=f26e7]: reCAPTCHA
+          - text: 提供保护

@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+  <title>Steam 桌面令牌验证器</title>
+  <script>
+    // 在 CSS 加载前设置主题，防止浅色模式下闪黑
+    (function() {
+      try {
+        var theme = localStorage.getItem('steam-auth-theme');
+        if (theme === 'light') {
+          document.documentElement.setAttribute('data-theme', 'light');
+          document.documentElement.style.backgroundColor = '#ffffff';
+        } else if (theme === 'dark') {
+          document.documentElement.setAttribute('data-theme', 'dark');
+          document.documentElement.style.backgroundColor = '#0a0e14';
+        } else {
+          if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+            document.documentElement.style.backgroundColor = '#ffffff';
+          }
+        }
+      } catch(e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- 标题栏 -->
+  <div class="titlebar">
+    <div class="titlebar-title">Steam 桌面令牌验证器</div>
+  </div>
+
+  <!-- 工具栏 -->
+  <div class="header">
+    <div class="button-group">
+      <button id="btn-bind" class="btn btn-primary" aria-label="添加新账号">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        添加新账号
+      </button>
+      <button id="btn-qr-click-login" class="btn" aria-label="二维码登录">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        二维码登录
+      </button>
+      <button id="btn-import" class="btn" aria-label="导入账号">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+        导入
+      </button>
+    </div>
+    <div class="divider" role="separator"></div>
+    <button id="btn-toggle-theme" class="btn btn-icon" aria-label="切换主题" title="切换主题（T）">
+      <!-- 太阳图标（浅色主题） -->
+      <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+      <!-- 月亮图标（深色主题） -->
+      <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+    </button>
+  </div>
+
+  <!-- 主内容区 -->
+  <div class="main">
+    <!-- 验证码卡片 -->
+    <div class="auth-card" id="authCard" role="region" aria-label="当前账号验证码">
+      <div class="auth-card-header">
+        <div class="account-info">
+          <div class="account-avatar" id="accountAvatar">-</div>
+          <div class="account-meta">
+            <div class="account-name" id="accountName">-</div>
+            <div class="account-id">
+              <span class="label">Steam ID</span>
+              <span id="accountId">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="auth-code-section">
+        <div class="auth-code-wrapper">
+          <div class="auth-code" id="authCode" aria-live="polite">------</div>
+          <div class="countdown-ring" aria-label="验证码剩余时间">
+            <svg width="52" height="52" viewBox="0 0 52 52">
+              <circle cx="26" cy="26" r="22" fill="none" stroke="var(--border)" stroke-width="3.5"></circle>
+              <circle id="countdownCircle" cx="26" cy="26" r="22" fill="none" stroke="var(--accent)" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="138.2" stroke-dashoffset="0"></circle>
+            </svg>
+            <div class="countdown-text" id="countdownText">30</div>
+          </div>
+        </div>
+        <button class="copy-btn" id="copyBtn" aria-label="复制验证码">
+          <svg id="copyIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          <span id="copyText">复制</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 账号列表 -->
+    <div class="account-list" role="region" aria-label="账号列表">
+      <div class="list-header">
+        <div class="list-title">已保存账号</div>
+        <div class="list-count" id="listCount">共 0 个账号</div>
+      </div>
+      <div class="list-content" id="listContent" role="listbox" tabindex="0" aria-label="账号选择列表">
+        <div class="empty-state">
+          <div class="empty-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          </div>
+          <p class="empty-title">暂无 Steam 令牌</p>
+          <p class="empty-desc">点击上方「添加新账号」直接登录 Steam 绑定验证器</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部搜索栏 -->
+  <div class="footer">
+    <div class="search-box">
+      <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <input type="text" class="search-input" id="searchInput" placeholder="筛选账号..." aria-label="筛选账号" autocomplete="off">
+    </div>
+    <div class="total-badge" id="totalBadge">0 / 0</div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast" role="status" aria-live="polite">已复制到剪贴板</div>
+
+  <!-- QR 点击登录弹窗 -->
+  <div id="modal-qr-click" class="modal" style="display:none">
+    <div class="modal-overlay"></div>
+    <div class="modal-content qr-click-modal-content">
+      <div class="modal-header">
+        <h3>二维码点击登录</h3>
+        <button class="modal-close" id="qr-click-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="qr-click-steps">
+          <p class="step-desc">在 Steam 网页端打开登录页面，显示二维码后：</p>
+          <ol>
+            <li>将鼠标悬停在网页二维码上方</li>
+            <li>点击下方「开始识别并登录」按钮</li>
+          </ol>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:8px;">默认使用列表中已选中的账号登录</p>
+        </div>
+        <div class="qr-click-account-select" style="display:none;">
+          <select id="qr-click-account-select" class="form-select"></select>
+        </div>
+        <div id="qr-click-status" class="status-box" style="display:none">
+          <span class="status-spinner"></span>
+          <span id="qr-click-status-text">处理中...</span>
+        </div>
+        <div id="qr-click-result" style="display:none;margin-top:12px;"></div>
+        <button id="btn-qr-click-detect" class="btn btn-primary btn-block" style="margin-top:16px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          开始识别并登录
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 交易确认弹窗 -->
+  <div id="modal-confirmations" class="modal" style="display:none">
+    <div class="modal-overlay"></div>
+    <div class="modal-content confirmation-modal">
+      <div class="modal-header">
+        <h3>交易确认</h3>
+        <button class="modal-close" id="confirmations-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="confirmations-list" class="confirmations-list">
+          <p style="text-align:center;color:var(--text-muted);padding:20px;"><span class="status-spinner"></span> 加载中...</p>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;">
+          <button id="btn-load-confirmations" class="btn btn-primary btn-block">加载待确认交易</button>
+          <button id="btn-confirm-all" class="btn btn-secondary btn-block" style="display:none;">确认全部</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 绑定流程弹窗 -->
+  <div id="modal-bind" class="modal" style="display:none">
+    <div class="modal-overlay"></div>
+    <div class="modal-content bind-modal-wide">
+      <div class="modal-header">
+        <h3 id="bind-title">绑定 Steam 令牌</h3>
+        <button class="modal-close" id="bind-close">&times;</button>
+      </div>
+      <div class="modal-body bind-body">
+
+        <!-- 步骤 1: Steam 登录表单 -->
+        <div id="step-login" class="bind-step">
+          <div class="step-indicator">
+            <span class="step-dot active">1</span><span class="step-line"></span>
+            <span class="step-dot">2</span><span class="step-line"></span>
+            <span class="step-dot">3</span><span class="step-line"></span>
+            <span class="step-dot">4</span>
+          </div>
+          <p class="step-title">第一步：登录 Steam 账号</p>
+          <p class="step-desc">请输入你的 Steam 账号和密码进行登录。此登录模拟 Steam 手机 App，确保能获取有效的令牌凭据。</p>
+          <div class="form-group">
+            <label>Steam 账号</label>
+            <input type="text" id="login-username" placeholder="输入 Steam 账号名" autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label>Steam 密码</label>
+            <input type="password" id="login-password" placeholder="输入 Steam 密码" autocomplete="current-password">
+          </div>
+          <div id="guard-code-group" class="form-group" style="display:none">
+            <label>Steam Guard 验证码</label>
+            <input type="text" id="login-guard-code" placeholder="输入邮箱或手机验证码" maxlength="10">
+            <p class="hint-text" id="guard-hint"></p>
+          </div>
+          <div id="login-status" class="status-box" style="display:none">
+            <span class="status-spinner"></span>
+            <span id="login-status-text">正在登录...</span>
+          </div>
+          <button id="btn-steam-login" class="btn btn-primary btn-block">登录 Steam</button>
+        </div>
+
+        <!-- 步骤 2: 邮箱验证码 -->
+        <div id="step-phone" class="bind-step" style="display:none">
+          <div class="step-indicator">
+            <span class="step-dot done">✓</span><span class="step-line done"></span>
+            <span class="step-dot active">2</span><span class="step-line"></span>
+            <span class="step-dot">3</span><span class="step-line"></span>
+            <span class="step-dot">4</span>
+          </div>
+          <p class="step-title">第二步：邮箱验证码</p>
+          <p class="step-desc">点击下方按钮，Steam 将向你账号绑定的邮箱发送验证码</p>
+          <button id="btn-send-sms" class="btn btn-primary btn-block">发送验证码到邮箱</button>
+          <div id="sms-status" class="status-box" style="display:none">
+            <span class="status-spinner"></span>
+            <span id="sms-status-text">处理中...</span>
+          </div>
+          <div id="email-code-section" style="display:none;margin-top:16px;">
+            <div class="form-group">
+              <label>邮箱验证码</label>
+              <input type="text" id="sms-code" placeholder="输入邮件中的验证码" maxlength="10" autocomplete="one-time-code">
+            </div>
+            <button id="btn-verify-sms" class="btn btn-primary btn-block">验证并绑定</button>
+          </div>
+        </div>
+
+        <!-- 步骤 3: 撤销代码确认 -->
+        <div id="step-revocation" class="bind-step" style="display:none">
+          <div class="step-indicator">
+            <span class="step-dot done">✓</span><span class="step-line done"></span>
+            <span class="step-dot done">✓</span><span class="step-line done"></span>
+            <span class="step-dot active">3</span><span class="step-line"></span>
+            <span class="step-dot">4</span>
+          </div>
+          <p class="step-title">第三步：保存撤销代码</p>
+          <p class="step-desc">令牌已成功生成！请务必保存下方的撤销代码，丢失验证器后可用此代码恢复账号</p>
+          <div class="warning-box">
+            <p><strong>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:4px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              请立即复制并安全保存你的撤销代码</strong></p>
+            <code id="revocation-code" style="font-size:18px;word-break:break-all;letter-spacing:2px;"></code>
+            <button id="btn-copy-revocation" class="btn btn-secondary" style="margin-top:12px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+              复制撤销代码
+            </button>
+          </div>
+          <div style="margin-top:16px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="confirm-revocation-saved">
+              <span>我已安全保存撤销代码，确认完成绑定</span>
+            </label>
+          </div>
+          <button id="btn-confirm-revocation" class="btn btn-primary btn-block" style="margin-top:12px;" disabled>确认绑定</button>
+        </div>
+
+        <!-- 步骤 4: 绑定完成 -->
+        <div id="step-done" class="bind-step" style="display:none">
+          <div class="step-indicator">
+            <span class="step-dot done">✓</span><span class="step-line done"></span>
+            <span class="step-dot done">✓</span><span class="step-line done"></span>
+            <span class="step-dot done">✓</span><span class="step-line done"></span>
+            <span class="step-dot done">✓</span>
+          </div>
+          <div style="text-align:center;padding:20px 0;">
+            <div style="margin-bottom:12px;">
+              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <p class="step-title">绑定成功！</p>
+            <p class="step-desc">Steam 令牌已成功绑定，maFile 已保存</p>
+            <button id="btn-finish-bind" class="btn btn-primary" style="margin-top:16px;">完成</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- 重新登录弹窗 -->
+  <div id="modal-relogin" class="modal" style="display:none">
+    <div class="modal-overlay"></div>
+    <div class="modal-content relogin-modal-content">
+      <div class="modal-header">
+        <h3>重新登录获取令牌</h3>
+        <button class="modal-close" id="relogin-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="step-desc" id="relogin-account-info"></p>
+        <p class="step-desc" style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">
+          该账号缺少 access_token，需要重新输入密码登录来获取。登录成功后 access_token 会自动保存到 maFile。
+        </p>
+
+        <div id="relogin-step-login">
+          <div class="form-group">
+            <label>Steam 账号</label>
+            <input type="text" id="relogin-username" placeholder="Steam 账号名" disabled autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label>Steam 密码</label>
+            <input type="password" id="relogin-password" placeholder="输入 Steam 密码" autocomplete="current-password">
+          </div>
+          <div id="relogin-guard-group" class="form-group" style="display:none">
+            <label>Steam Guard 验证码</label>
+            <input type="text" id="relogin-guard-code" placeholder="输入邮箱或手机验证码" maxlength="10">
+            <p class="hint-text" id="relogin-guard-hint"></p>
+          </div>
+          <div id="relogin-status" class="status-box" style="display:none">
+            <span class="status-spinner"></span>
+            <span id="relogin-status-text">正在登录...</span>
+          </div>
+          <button id="btn-relogin-submit" class="btn btn-primary btn-block" style="margin-top:12px;">登录并获取令牌</button>
+        </div>
+
+        <div id="relogin-step-done" style="display:none;text-align:center;padding:20px 0;">
+          <div style="margin-bottom:12px;">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </div>
+          <p class="step-title">access_token 已更新！</p>
+          <p class="step-desc">现在可以使用二维码点击登录功能了</p>
+          <button id="btn-relogin-finish" class="btn btn-primary" style="margin-top:16px;">完成</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右键菜单 -->
+  <div id="context-menu" class="context-menu" style="display:none">
+    <div class="context-menu-item" data-action="copy-name">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      <span>复制账号名</span>
+    </div>
+    <div class="context-menu-item" data-action="copy-steamid">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      <span>复制 SteamID</span>
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" data-action="edit-profile-name">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="M15 5l4 4"/></svg>
+      <span>同步个人资料名称</span>
+    </div>
+    <div class="context-menu-item" data-action="random-avatar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M2 15l5-5 4 4 3-3 8 8"/></svg>
+      <span>随机头像</span>
+    </div>
+    <div class="context-menu-item" data-action="inventory-public">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      <span>Steam 库存公开</span>
+    </div>
+    <div class="context-menu-item" data-action="confirm-all">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+      <span>确认并关闭交易保护弹窗</span>
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" data-action="export-mafile">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <span>导出令牌文件</span>
+    </div>
+    <div class="context-menu-item" data-action="relogin">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+      <span>重新登录修复账户</span>
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item danger-item" data-action="delete-account">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      <span>删除账号</span>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

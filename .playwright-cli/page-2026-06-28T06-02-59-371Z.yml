@@ -1,0 +1,16 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e4]:
+      - generic [ref=e6]: Free Userpics Pack
+      - link "More vector and 3d illustrations" [ref=e8] [cursor=pointer]:
+        - /url: https://craftwork.design
+        - generic [ref=e9]: More vector and 3d illustrations
+  - generic [ref=e11]:
+    - heading "100 free userpics for your design projects are here!" [level=1] [ref=e12]
+    - link "Download for free" [active] [ref=e15] [cursor=pointer]:
+      - /url: "#section-6"
+      - generic [ref=e16]: Download for free
+  - tablist [ref=e56]:
+    - tab "Circle" [selected] [ref=e57] [cursor=pointer]
+    - tab "Square" [ref=e58] [cursor=pointer]
+  - contentinfo [ref=e72]

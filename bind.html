@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+  <title>绑定 Steam 令牌</title>
+  <!-- 在 CSS 加载前立即设置主题，防止深色闪烁 -->
+  <script>
+    (function() {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      document.documentElement.setAttribute('data-theme', mq.matches ? 'dark' : 'light');
+      // 初始时禁用过渡动画，避免主题切换时的过渡闪烁
+      document.documentElement.classList.add('no-transition');
+    })();
+  </script>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* 初始状态禁用所有过渡，等主题稳定后再恢复 */
+    .no-transition,
+    .no-transition * {
+      transition: none !important;
+      animation: none !important;
+    }
+  </style>
+  <style>
+    :root {
+      --bg-page: #0d1117;
+      --bg-surface: #161b22;
+      --bg-surface-hover: #1c2128;
+      --bg-input: #0d1117;
+      --border-default: #30363d;
+      --border-focus: #2ea043;
+      --border-error: #f85149;
+      --text-primary: #f0f6fc;
+      --text-secondary: #8b949e;
+      --text-tertiary: #6e7681;
+      --accent: #2ea043;
+      --accent-hover: #3fb950;
+      --accent-pressed: #238636;
+      --danger: #f85149;
+      --warning: #f0883e;
+      --info: #58a6ff;
+      --shadow-modal: 0 20px 50px rgba(0,0,0,0.6);
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-xl: 16px;
+    }
+
+    [data-theme="light"] {
+      --bg-page: #ffffff;
+      --bg-surface: #f4f6f8;
+      --bg-surface-hover: #eef1f4;
+      --bg-input: #ffffff;
+      --border-default: #d0d7de;
+      --border-focus: #1a7f37;
+      --border-error: #cf222e;
+      --text-primary: #1f2328;
+      --text-secondary: #656d76;
+      --text-tertiary: #8c959f;
+      --accent: #1a7f37;
+      --accent-hover: #1f8f3f;
+      --accent-pressed: #136726;
+      --danger: #cf222e;
+      --warning: #9a6700;
+      --info: #0969da;
+      --shadow-modal: 0 20px 50px rgba(0,0,0,0.15);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      min-height: 100%; width: 100%;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #1a1b26 0%, #0d1117 100%);
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      color: var(--text-primary);
+      transition: background 0.3s ease;
+    }
+
+    [data-theme="light"] body {
+      background: linear-gradient(135deg, #f4f6f8 0%, #e8ecf0 100%);
+    }
+
+    .window {
+      width: 100%;
+      min-height: 100%;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      display: flex;
+      flex-direction: column;
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    .titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 48px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--border-default);
+      background: rgba(0,0,0,0.15);
+      -webkit-app-region: drag;
+      flex-shrink: 0;
+      position: relative;
+    }
+
+    [data-theme="light"] .titlebar { background: rgba(255,255,255,0.5); }
+
+    .titlebar-text {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .titlebar-actions {
+      display: flex;
+      gap: 8px;
+      -webkit-app-region: no-drag;
+      position: absolute;
+      right: 16px;
+    }
+
+    .icon-btn {
+      width: 28px;
+      height: 28px;
+      border: none;
+      background: transparent;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-secondary);
+      transition: all 0.15s ease;
+    }
+
+    .icon-btn:hover {
+      background: var(--bg-surface-hover);
+      color: var(--text-primary);
+    }
+
+    .icon-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    .content {
+      flex: 1;
+      padding: 24px 32px 40px;
+      overflow-y: visible;
+    }
+
+    .header {
+      display: block;
+      margin-bottom: 20px;
+      padding: 0;
+      border-bottom: none;
+      text-align: left;
+    }
+
+    .header-title {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      letter-spacing: -0.3px;
+    }
+
+    .header-subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* Stepper */
+    .stepper {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .step {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      position: relative;
+    }
+
+    .step:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      top: 16px;
+      left: calc(50% + 16px);
+      right: calc(-50% + 16px);
+      height: 2px;
+      background: var(--border-default);
+      transition: background 0.3s ease;
+    }
+
+    .step.completed:not(:last-child)::after,
+    .step.active:not(:last-child)::after {
+      background: var(--accent);
+    }
+
+    .step-dot {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 600;
+      border: 2px solid var(--border-default);
+      background: var(--bg-surface);
+      color: var(--text-tertiary);
+      transition: all 0.3s ease;
+      z-index: 1;
+    }
+
+    .step.active .step-dot {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: white;
+      box-shadow: 0 0 0 4px rgba(46, 160, 67, 0.15);
+    }
+
+    [data-theme="light"] .step.active .step-dot {
+      box-shadow: 0 0 0 4px rgba(26, 127, 55, 0.12);
+    }
+
+    .step.completed .step-dot {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: white;
+    }
+
+    .step-label {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      text-align: center;
+      font-weight: 500;
+    }
+
+    .step.active .step-label,
+    .step.completed .step-label {
+      color: var(--text-primary);
+    }
+
+    /* Step content */
+    .step-panel {
+      display: none;
+    }
+
+    .step-panel.active {
+      display: block;
+      animation: fadeIn 0.25s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .step-heading {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .step-desc {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin-bottom: 18px;
+    }
+
+    .security-notice {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 14px;
+      background: rgba(46, 160, 67, 0.08);
+      border: 1px solid rgba(46, 160, 67, 0.2);
+      border-radius: var(--radius-md);
+      margin-bottom: 18px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    [data-theme="light"] .security-notice {
+      background: rgba(26, 127, 55, 0.06);
+      border-color: rgba(26, 127, 55, 0.15);
+    }
+
+    .security-notice svg {
+      flex-shrink: 0;
+      color: var(--accent);
+      margin-top: 1px;
+    }
+
+    /* Status box */
+    .status-box {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      background: var(--bg-page);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .status-box.show { display: flex; }
+
+    .status-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border-default);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Form */
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+
+    .input-wrap {
+      position: relative;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 12px 14px;
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--text-primary);
+      background: var(--bg-input);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      transition: all 0.15s ease;
+    }
+
+    .form-input:hover {
+      border-color: var(--text-tertiary);
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(46, 160, 67, 0.15);
+    }
+
+    [data-theme="light"] .form-input:focus {
+      box-shadow: 0 0 0 3px rgba(26, 127, 55, 0.12);
+    }
+
+    .form-input.error {
+      border-color: var(--border-error);
+    }
+
+    .form-input.error:focus {
+      box-shadow: 0 0 0 3px rgba(248, 81, 73, 0.15);
+    }
+
+    [data-theme="light"] .form-input.error:focus {
+      box-shadow: 0 0 0 3px rgba(207, 34, 46, 0.12);
+    }
+
+    .password-toggle {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
+      border: none;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      padding: 6px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+
+    .password-toggle:hover {
+      color: var(--text-primary);
+      background: var(--bg-surface-hover);
+    }
+
+    .password-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    .form-input[type="password"] { padding-right: 40px; }
+    .form-input[type="text"] { padding-right: 40px; }
+
+    .form-hint {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      margin-top: 6px;
+    }
+
+    .form-error {
+      font-size: 12px;
+      color: var(--danger);
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Button row */
+    .button-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 500;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: 1px solid transparent;
+    }
+
+    .btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--text-secondary);
+      border-color: var(--border-default);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-surface-hover);
+      color: var(--text-primary);
+      border-color: var(--text-tertiary);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+
+    .btn-primary:active:not(:disabled) {
+      background: var(--accent-pressed);
+      transform: translateY(1px);
+    }
+
+    .btn-primary:disabled,
+    .btn-primary.loading {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+
+    /* Spinner */
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    /* Step 3/4 specific */
+    .code-block {
+      background: var(--bg-page);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+      font-size: 14px;
+      word-break: break-all;
+      color: var(--text-primary);
+      margin-bottom: 12px;
+    }
+
+    [data-theme="light"] .code-block { background: #f6f8fa; }
+
+    .info-card {
+      background: var(--bg-page);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    [data-theme="light"] .info-card { background: #f6f8fa; }
+
+    .info-card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .info-card-text {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .success-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: rgba(46, 160, 67, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      color: var(--accent);
+    }
+
+    .success-title {
+      text-align: center;
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .success-desc {
+      text-align: center;
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 10px 20px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 500;
+      z-index: 9999;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      display: none;
+      animation: toastIn 0.3s ease;
+    }
+
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
+    .toast.success { background: var(--accent); color: #fff; }
+    .toast.error { background: var(--danger); color: #fff; }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* Checkbox */
+    .checkbox-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      margin-top: 16px;
+    }
+
+    .checkbox-wrap input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .checkbox-wrap label {
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+
+<div class="window" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+  <div class="titlebar">
+    <span class="titlebar-text">绑定 Steam 令牌</span>
+  </div>
+
+  <div class="content">
+    <div class="header">
+      <h1 class="header-title" id="dialog-title">添加新的 Steam 令牌</h1>
+      <p class="header-subtitle">通过模拟 Steam 手机 App 登录，获取并保存令牌凭据。</p>
+    </div>
+
+    <div class="stepper" role="tablist" aria-label="绑定步骤">
+      <div class="step active" data-step="1" role="tab" aria-selected="true">
+        <div class="step-dot">1</div>
+        <span class="step-label">登录</span>
+      </div>
+      <div class="step" data-step="2" role="tab" aria-selected="false">
+        <div class="step-dot">2</div>
+        <span class="step-label">验证</span>
+      </div>
+      <div class="step" data-step="3" role="tab" aria-selected="false">
+        <div class="step-dot">3</div>
+        <span class="step-label">确认</span>
+      </div>
+      <div class="step" data-step="4" role="tab" aria-selected="false">
+        <div class="step-dot">4</div>
+        <span class="step-label">完成</span>
+      </div>
+    </div>
+
+    <!-- Step 1: Login -->
+    <div class="step-panel active" data-step="1" id="step-login">
+      <h2 class="step-heading">登录你的 Steam 账号</h2>
+      <p class="step-desc">输入账号和密码，登录过程与 Steam 手机 App 一致，不会上传或记录你的原始密码。</p>
+
+      <div class="security-notice">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+        <span>凭据仅在本地加密保存，不会上传到任何服务器。</span>
+      </div>
+
+      <div id="login-status" class="status-box">
+        <span class="status-spinner"></span>
+        <span id="login-status-text">正在登录...</span>
+      </div>
+
+      <form id="loginForm">
+        <div class="form-group">
+          <label class="form-label" for="login-username">Steam 账号</label>
+          <div class="input-wrap">
+            <input type="text" id="login-username" class="form-input" placeholder="输入 Steam 账号名" autocomplete="username" aria-describedby="accountHint">
+          </div>
+          <div class="form-hint" id="accountHint">通常是你的 Steam 用户名或邮箱。</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="login-password">Steam 密码</label>
+          <div class="input-wrap">
+            <input type="password" id="login-password" class="form-input" placeholder="输入 Steam 密码" autocomplete="current-password" aria-describedby="passwordHint">
+            <button type="button" class="password-toggle" id="togglePassword" aria-label="显示密码">
+              <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </button>
+          </div>
+          <div class="form-hint" id="passwordHint">如果账号已开启手机令牌，下一步需要输入验证码。</div>
+          <div class="form-error" id="loginError" style="display: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span id="loginErrorText">账号或密码错误</span>
+          </div>
+        </div>
+
+        <div id="guard-code-group" class="form-group" style="display:none">
+          <label class="form-label" for="login-guard-code">Steam Guard 验证码</label>
+          <div class="input-wrap">
+            <input type="text" id="login-guard-code" class="form-input" placeholder="输入邮箱或手机验证码" maxlength="10">
+          </div>
+          <div class="form-hint" id="guard-hint"></div>
+        </div>
+
+        <div class="button-row">
+          <button type="button" class="btn btn-secondary" id="cancelBtn">取消</button>
+          <button type="submit" class="btn btn-primary" id="btn-steam-login">登录 Steam</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Step 2: Verify -->
+    <div class="step-panel" data-step="2" id="step-phone">
+      <h2 class="step-heading">输入邮箱验证码</h2>
+      <p class="step-desc">验证码已自动发送至你的 Steam 绑定邮箱，请查收邮件并输入验证码。</p>
+
+      <div id="sms-status" class="status-box">
+        <span class="status-spinner"></span>
+        <span id="sms-status-text">正在发送验证码...</span>
+      </div>
+
+      <div id="email-code-section" style="margin-top: 24px;">
+        <div class="form-group">
+          <label class="form-label" for="sms-code">邮箱验证码</label>
+          <div class="input-wrap">
+            <input type="text" id="sms-code" class="form-input" placeholder="输入邮件中的验证码" maxlength="10" autocomplete="one-time-code" aria-describedby="codeHint">
+          </div>
+          <div class="form-hint" id="codeHint">请查收注册邮箱中的验证码。</div>
+          <div class="form-error" id="codeError" style="display: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span id="codeErrorText">验证码无效</span>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button type="button" class="btn btn-secondary" id="backToLoginBtn">返回</button>
+          <button type="button" class="btn btn-primary" id="btn-verify-sms">验证并绑定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Confirm -->
+    <div class="step-panel" data-step="3" id="step-revocation">
+      <h2 class="step-heading">确认保存凭据</h2>
+      <p class="step-desc">已成功获取令牌，请确认账号信息并保存到本地。</p>
+
+      <div class="info-card">
+        <div class="info-card-title">撤销代码</div>
+        <div class="info-card-text" id="revocation-code" style="font-family: monospace; font-size: 16px; letter-spacing: 1px;"></div>
+      </div>
+
+      <div class="security-notice">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+        <span>请妥善保存撤销代码，卸载应用或更换设备时可能需要用到。</span>
+      </div>
+
+      <div class="button-row" style="justify-content: space-between;">
+        <button type="button" class="btn btn-secondary" id="btn-copy-revocation">复制撤销代码</button>
+        <div style="display: flex; gap: 12px;">
+          <button type="button" class="btn btn-secondary" id="backToCodeBtn">返回</button>
+          <button type="button" class="btn btn-primary" id="btn-confirm-revocation">保存令牌</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4: Done -->
+    <div class="step-panel" data-step="4" id="step-done">
+      <div class="success-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </div>
+      <h2 class="success-title">令牌绑定成功</h2>
+      <p class="success-desc">该账号已加入令牌列表。现在可以安全关闭此窗口，在主界面中查看动态验证码。</p>
+
+      <div class="button-row" style="justify-content: center; margin-top: 32px;">
+        <button type="button" class="btn btn-primary" id="btn-finish-bind">完成</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast">
+  <span id="toast-message"></span>
+</div>
+
+<script src="bind-renderer.js"></script>
+</body>
+</html>

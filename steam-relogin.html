@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<title>重新登录获取令牌</title>
+<!-- 在 CSS 加载前立即设置主题，防止深色闪烁 -->
+<script>
+  (function() {
+    // 优先读取用户手动设置的主题，其次跟随系统偏好
+    var theme;
+    try {
+      theme = localStorage.getItem('steam-auth-theme');
+    } catch(e) {}
+    if (!theme || theme === 'system') {
+      var mq = window.matchMedia('(prefers-color-scheme: dark)');
+      theme = mq.matches ? 'dark' : 'light';
+    }
+    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.classList.add('no-transition');
+  })();
+</script>
+<!-- 在 style 加载前先覆盖默认背景，防止白屏/黑屏闪烁 -->
+<style>
+  html, body { min-height: 100%; margin: 0; }
+  html { background: #ffffff; }
+  body { background: #f4f6f8; }
+  html[data-theme="dark"] { background: #0d1117; }
+  html[data-theme="dark"] body { background: #1a1b26; }
+</style>
+<style>
+  .no-transition,
+  .no-transition * {
+    transition: none !important;
+    animation: none !important;
+  }
+</style>
+<style>
+  :root {
+    --bg-page: #0d1117;
+    --bg-surface: #161b22;
+    --bg-surface-hover: #1c2128;
+    --bg-input: #0d1117;
+    --border-default: #30363d;
+    --border-focus: #2ea043;
+    --border-error: #f85149;
+    --text-primary: #f0f6fc;
+    --text-secondary: #8b949e;
+    --text-tertiary: #6e7681;
+    --accent: #2ea043;
+    --accent-hover: #3fb950;
+    --accent-pressed: #238636;
+    --danger: #f85149;
+    --warning: #f0883e;
+    --info: #58a6ff;
+    --shadow-modal: 0 20px 50px rgba(0,0,0,0.6);
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+  }
+
+  [data-theme="light"] {
+    --bg-page: #ffffff;
+    --bg-surface: #f4f6f8;
+    --bg-surface-hover: #eef1f4;
+    --bg-input: #ffffff;
+    --border-default: #d0d7de;
+    --border-focus: #1a7f37;
+    --border-error: #cf222e;
+    --text-primary: #1f2328;
+    --text-secondary: #656d76;
+    --text-tertiary: #8c959f;
+    --accent: #1a7f37;
+    --accent-hover: #1f8f3f;
+    --accent-pressed: #136726;
+    --danger: #cf222e;
+    --warning: #9a6700;
+    --info: #0969da;
+    --shadow-modal: 0 20px 50px rgba(0,0,0,0.15);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { min-height: 100%; width: 100%; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, var(--bg-surface-hover, #1a1b26) 0%, var(--bg-page, #0d1117) 100%);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    color: var(--text-primary);
+    transition: background 0.3s ease;
+  }
+
+  [data-theme="light"] body {
+    background: linear-gradient(135deg, var(--bg-surface-hover, #eef1f4) 0%, var(--bg-page, #f4f6f8) 100%);
+  }
+
+  .window {
+    width: 100%;
+    min-height: 100%;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    display: flex;
+    flex-direction: column;
+    transition: background 0.3s ease, border-color 0.3s ease;
+  }
+
+  .titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 48px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border-default);
+    background: rgba(0,0,0,0.15);
+    -webkit-app-region: drag;
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  [data-theme="light"] .titlebar { background: rgba(255,255,255,0.5); }
+
+  .titlebar-text {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .content {
+    flex: 1;
+    padding: 24px 32px 40px;
+    overflow-y: visible;
+  }
+
+  /* Account identity bar */
+  .account-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding: 10px 14px;
+    background: rgba(46, 160, 67, 0.08);
+    border: 1px solid rgba(46, 160, 67, 0.18);
+    border-radius: var(--radius-md);
+  }
+  [data-theme="light"] .account-bar {
+    background: rgba(26, 127, 55, 0.06);
+    border-color: rgba(26, 127, 55, 0.14);
+  }
+  .account-avatar {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2ea043, #238636);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .account-avatar img {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+  }
+  [data-theme="light"] .account-avatar {
+    background: linear-gradient(135deg, #1a7f37, #136726);
+  }
+  .account-info { min-width: 0; }
+  .account-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .account-hint {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 1px;
+  }
+
+  /* Header */
+  .header { margin-bottom: 20px; }
+  .header-title {
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    margin-bottom: 6px;
+  }
+  .header-desc {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+  }
+
+  /* Form */
+  .form-group { margin-bottom: 18px; }
+  .form-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 7px;
+  }
+  .input-wrap { position: relative; }
+  .form-input {
+    width: 100%;
+    padding: 11px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--text-primary);
+    background: var(--bg-input);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    transition: all 0.15s ease;
+  }
+  .form-input:hover { border-color: var(--text-tertiary); }
+  .form-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(46, 160, 67, 0.15);
+  }
+  [data-theme="light"] .form-input:focus {
+    box-shadow: 0 0 0 3px rgba(26, 127, 55, 0.12);
+  }
+  .form-input.error { border-color: var(--border-error); }
+  .form-input.error:focus {
+    box-shadow: 0 0 0 3px rgba(248, 81, 73, 0.15);
+  }
+  [data-theme="light"] .form-input.error:focus {
+    box-shadow: 0 0 0 3px rgba(207, 34, 46, 0.12);
+  }
+  .password-toggle {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+  }
+  .password-toggle:hover {
+    color: var(--text-primary);
+    background: var(--bg-surface-hover);
+  }
+  .password-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .form-input[type="password"] { padding-right: 40px; }
+
+  .form-hint {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-top: 5px;
+  }
+  .form-error {
+    font-size: 12px;
+    color: var(--danger);
+    margin-top: 5px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* Buttons */
+  .button-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 24px;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .btn-secondary {
+    background: transparent;
+    color: var(--text-secondary);
+    border-color: var(--border-default);
+  }
+  .btn-secondary:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+    border-color: var(--text-tertiary);
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+  .btn-primary:active:not(:disabled) {
+    background: var(--accent-pressed);
+    transform: translateY(1px);
+  }
+  .btn-primary:disabled,
+  .btn-primary.loading {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Success state */
+  .success-state { text-align: center; padding: 4px 0 0; position: relative; }
+  .success-icon-wrap {
+    position: relative;
+    display: inline-block;
+    margin-bottom: 18px;
+  }
+  .success-icon {
+    width: 68px; height: 68px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    animation: successPopIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+    box-shadow:
+      0 4px 24px rgba(46, 160, 67, 0.4),
+      0 0 0 1px rgba(255,255,255,0.08) inset;
+    position: relative;
+    z-index: 1;
+  }
+  .success-ring {
+    position: absolute;
+    top: -4px; left: -4px; right: -4px; bottom: -4px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    opacity: 0;
+    animation: ringExpand 0.8s ease 0.3s forwards;
+  }
+  @keyframes ringExpand {
+    0% { transform: scale(0.9); opacity: 0.6; }
+    100% { transform: scale(1.5); opacity: 0; }
+  }
+  @keyframes successPopIn {
+    from { opacity: 0; transform: scale(0.4); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  .success-icon svg {
+    stroke-dasharray: 28;
+    stroke-dashoffset: 28;
+    animation: drawCheck 0.4s cubic-bezier(0.65, 0, 0.35, 1) 0.35s forwards;
+  }
+  @keyframes drawCheck { to { stroke-dashoffset: 0; } }
+  .success-text {
+    font-size: 19px;
+    font-weight: 650;
+    letter-spacing: -0.2px;
+    margin-bottom: 8px;
+    animation: fadeUp 0.45s ease 0.2s both;
+  }
+  .success-sub {
+    font-size: 13.5px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    max-width: 280px;
+    margin: 0 auto;
+    animation: fadeUp 0.45s ease 0.32s both;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Success detail card */
+  .success-detail {
+    margin-top: 20px;
+    padding: 0;
+    background: var(--bg-surface-hover);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    text-align: left;
+    overflow: hidden;
+    animation: fadeUp 0.45s ease 0.42s both;
+  }
+  .success-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 14px 8px;
+    border-bottom: 1px solid var(--border-default);
+  }
+  .detail-header-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+  .detail-header-text {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .success-detail-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 14px;
+    font-size: 12.5px;
+  }
+  .success-detail-row + .success-detail-row {
+    border-top: 1px solid var(--border-default);
+  }
+  .detail-label {
+    color: var(--text-tertiary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .detail-value {
+    color: var(--text-primary);
+    font-weight: 500;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: inherit;
+    background: rgba(46, 160, 67, 0.12);
+    color: var(--accent);
+  }
+  [data-theme="light"] .status-badge {
+    background: rgba(26, 127, 55, 0.1);
+  }
+
+  /* Confetti canvas overlay */
+  #confettiCanvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="window" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+  <div class="titlebar">
+    <span class="titlebar-text">重新登录获取令牌</span>
+  </div>
+
+  <div class="content" id="mainContent">
+
+    <!-- Account identity -->
+    <div class="account-bar" role="region" aria-label="当前账号">
+      <div class="account-avatar" id="accountAvatar">A</div>
+      <div class="account-info">
+        <div class="account-name" id="targetAccountName">---</div>
+        <div class="account-hint" id="targetAccountHint">---</div>
+      </div>
+    </div>
+
+    <!-- Header -->
+    <div class="header">
+      <h1 class="header-title" id="dialogTitle">重新验证身份</h1>
+      <p class="header-desc">令牌凭据已过期或无效，需要你再次输入密码以重新获取。此操作仅影响当前选中的账号。</p>
+    </div>
+
+    <!-- Form -->
+    <form id="reloginForm">
+      <div class="form-group">
+        <label class="form-label" for="reloginAccount">Steam 账号</label>
+        <input type="text" id="reloginAccount" class="form-input" value="" autocomplete="username" readonly style="cursor:not-allowed;opacity:0.75;">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="reloginPassword">Steam 密码</label>
+        <div class="input-wrap">
+          <input type="password" id="reloginPassword" class="form-input" placeholder="输入 Steam 密码" autocomplete="current-password" aria-describedby="pwHint pwError">
+          <button type="button" class="password-toggle" id="togglePassword" aria-label="显示密码">
+            <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>
+            </svg>
+          </button>
+        </div>
+        <div class="form-hint" id="pwHint">密码不会在本地明文存储，仅用于向 Steam 服务器验证身份。</div>
+        <div class="form-error" id="pwError" style="display:none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span id="pwErrorText">密码错误</span>
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button type="button" class="btn btn-secondary" id="cancelBtn">取消</button>
+        <button type="submit" class="btn btn-primary" id="submitBtn">登录并获取令牌</button>
+      </div>
+    </form>
+
+  </div><!-- /content -->
+
+</div>
+
+<script>
+  // 从 localStorage 读取用户手动设置的主题，与内联脚本逻辑保持一致
+  function getSavedTheme() {
+    try {
+      var t = localStorage.getItem('steam-auth-theme');
+      if (t && t !== 'system') return t;
+    } catch(e) {}
+    return 'system';
+  }
+  const state = {
+    theme: getSavedTheme(),
+    accountName: '',
+    steamId: '',
+    pendingAction: null
+  };
+  const body = document.body;
+
+  // Apply theme helper
+  let themeInitialized = false;
+  function applyTheme(theme) {
+    const actual = theme === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : theme;
+    document.documentElement.setAttribute('data-theme', actual);
+    body.setAttribute('data-theme', actual);
+    if (!themeInitialized) {
+      themeInitialized = true;
+      requestAnimationFrame(() => {
+        document.documentElement.classList.remove('no-transition');
+      });
+    }
+  }
+
+  // Listen for theme changes from main process
+  if (window.electronAPI && window.electronAPI.onThemeChange) {
+    window.electronAPI.onThemeChange((theme) => {
+      state.theme = theme;
+      applyTheme(theme);
+    });
+  }
+  applyTheme(state.theme);
+
+  // 填入账号信息的通用方法
+  function fillAccountData(data) {
+    if (data && data.accountName) {
+      state.accountName = data.accountName;
+      state.steamId = data.steamId || '';
+      document.getElementById('targetAccountName').textContent = data.accountName;
+      document.getElementById('targetAccountHint').textContent = (data.steamId || '---') + ' · 将为此账号重新获取令牌';
+      document.getElementById('reloginAccount').value = data.accountName;
+      document.getElementById('accountAvatar').textContent = data.accountName.charAt(0).toUpperCase();
+      // 加载真实 Steam 头像
+      if (state.steamId) {
+        loadAccountAvatar(state.steamId);
+      }
+    }
+    if (data && data.pendingAction) {
+      state.pendingAction = data.pendingAction;
+    }
+  }
+
+  // 加载 Steam 头像
+  async function loadAccountAvatar(steamId) {
+    if (!steamId) return;
+    try {
+      const result = await window.electronAPI.getSteamAvatar(steamId);
+      if (result && result.success && result.url) {
+        const img = new Image();
+        img.onload = () => {
+          // 尝试多个可能的头像元素 id
+          const avatarIds = ['accountAvatar', 'successAvatar'];
+          for (const id of avatarIds) {
+            const avatar = document.getElementById(id);
+            if (avatar && !avatar.querySelector('img')) {
+              avatar.innerHTML = '';
+              avatar.appendChild(img.cloneNode(true));
+            }
+          }
+        };
+        img.src = result.url;
+      }
+    } catch (e) {
+      // 加载失败，保持首字母
+    }
+  }
+
+  // 方式1：监听主进程通过 executeJavaScript 注入的自定义事件
+  window.addEventListener('relogin-data-ready', (e) => {
+    fillAccountData(e.detail);
+  });
+
+  // 方式2：直接读取主进程通过 executeJavaScript 注入的全局变量
+  if (window.__reloginData) {
+    fillAccountData(window.__reloginData);
+  }
+
+  // 方式3：通过 IPC 监听 init 事件
+  if (window.electronAPI && window.electronAPI.onReloginInit) {
+    window.electronAPI.onReloginInit(fillAccountData);
+  }
+
+  // 方式4：主动请求 init 数据（兜底）
+  if (window.electronAPI && window.electronAPI.requestReloginData) {
+    window.electronAPI.requestReloginData().then(fillAccountData);
+  }
+
+  // Password toggle
+  document.getElementById('togglePassword').addEventListener('click', () => {
+    const input = document.getElementById('reloginPassword');
+    const icon = document.getElementById('eyeIcon');
+    if (input.type === 'password') {
+      input.type = 'text';
+      icon.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>';
+      document.getElementById('togglePassword').setAttribute('aria-label', '隐藏密码');
+    } else {
+      input.type = 'password';
+      icon.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>';
+      document.getElementById('togglePassword').setAttribute('aria-label', '显示密码');
+    }
+  });
+
+  // Form submit
+  document.getElementById('reloginForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const password = document.getElementById('reloginPassword').value.trim();
+    const input = document.getElementById('reloginPassword');
+    const errorEl = document.getElementById('pwError');
+
+    input.classList.remove('error');
+
+    if (!password) {
+      input.classList.add('error');
+      document.getElementById('pwErrorText').textContent = '请输入密码';
+      errorEl.style.display = 'flex';
+      return;
+    }
+
+    const btn = document.getElementById('submitBtn');
+    btn.classList.add('loading');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>获取中...';
+
+    // Send login request to main process
+    if (window.electronAPI && window.electronAPI.reloginSubmit) {
+      window.electronAPI.reloginSubmit({
+        accountName: state.accountName,
+        password: password
+      }).then((result) => {
+        if (result.success) {
+          if (window.electronAPI && window.electronAPI.notifyReloginDone) {
+            window.electronAPI.notifyReloginDone({ steamId: result.steamId, pendingAction: state.pendingAction });
+          }
+          showSuccess();
+        } else {
+          btn.classList.remove('loading');
+          btn.disabled = false;
+          btn.innerHTML = '登录并获取令牌';
+          input.classList.add('error');
+          document.getElementById('pwErrorText').textContent = result.error || '密码错误，请重试';
+          errorEl.style.display = 'flex';
+          input.value = '';
+          input.focus();
+        }
+      });
+    }
+  });
+
+  function showSuccess() {
+    const accountName = state.accountName;
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = now.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', weekday: 'short' });
+    const expiry = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const expiryStr = expiry.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
+
+    // Launch confetti
+    launchConfetti();
+
+    const steamId = state.steamId || '';
+    const content = document.getElementById('mainContent');
+    content.innerHTML = `
+      <div class="account-bar" role="region" aria-label="当前账号">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="account-avatar" id="successAvatar">${accountName.charAt(0).toUpperCase()}</div>
+          <div>
+            <div class="account-name">${accountName}</div>
+            <div class="account-hint">${steamId} · 令牌已成功刷新</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="success-state" role="alert">
+        <div class="success-icon-wrap">
+          <div class="success-ring"></div>
+          <div class="success-icon">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </div>
+        </div>
+        <div class="success-text">令牌已刷新</div>
+        <div class="success-sub">${accountName} 的 Steam 令牌凭据已成功更新，可以正常使用验证码了。</div>
+
+        <div class="success-detail">
+          <div class="success-detail-header">
+            <span class="detail-header-dot"></span>
+            <span class="detail-header-text">令牌详情</span>
+          </div>
+          <div class="success-detail-row">
+            <span class="detail-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              账号
+            </span>
+            <span class="detail-value">${accountName}</span>
+          </div>
+          <div class="success-detail-row">
+            <span class="detail-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              状态
+            </span>
+            <span class="status-badge">✓ 已激活</span>
+          </div>
+          <div class="success-detail-row">
+            <span class="detail-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              刷新时间
+            </span>
+            <span class="detail-value">${dateStr} ${timeStr}</span>
+          </div>
+          <div class="success-detail-row">
+            <span class="detail-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              有效至
+            </span>
+            <span class="detail-value">${expiryStr}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="button-row" style="justify-content:center;margin-top:24px;">
+        <button type="button" class="btn btn-primary" id="finishBtn">完成</button>
+      </div>
+    `;
+
+    document.getElementById('finishBtn').addEventListener('click', () => {
+      if (window.electronAPI && window.electronAPI.closeReloginWindow) {
+        window.electronAPI.closeReloginWindow();
+      }
+    });
+
+    // 成功页面渲染后调整窗口高度
+    setTimeout(() => adjustWindowHeight(), 150);
+
+    // 成功页面也加载真实头像
+    if (state.steamId) {
+      loadAccountAvatar(state.steamId);
+    }
+  }
+
+  /* ── Confetti Celebration ── */
+  function launchConfetti() {
+    const canvas = document.createElement('canvas');
+    canvas.id = 'confettiCanvas';
+    document.body.appendChild(canvas);
+
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const particles = [];
+    const colors = ['#2ea043', '#3fb950', '#58a6ff', '#f0883e', '#a371f7'];
+
+    for (let i = 0; i < 50; i++) {
+      particles.push({
+        x: canvas.width / 2,
+        y: canvas.height / 2 + 40,
+        vx: (Math.random() - 0.5) * 12,
+        vy: (Math.random() - 1) * 12 - 3,
+        size: Math.random() * 7 + 4,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        rotation: Math.random() * 360,
+        rotationSpeed: (Math.random() - 0.5) * 10,
+        opacity: 1,
+        shape: Math.random() > 0.5 ? 'rect' : 'circle',
+        gravity: 0.25 + Math.random() * 0.15,
+      });
+    }
+
+    let frame = 0;
+    function animate() {
+      frame++;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = false;
+      particles.forEach(p => {
+        if (p.opacity <= 0) return;
+        alive = true;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += p.gravity;
+        p.vx *= 0.99;
+        p.rotation += p.rotationSpeed;
+        p.opacity -= 0.008;
+
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate((p.rotation * Math.PI) / 180);
+        ctx.globalAlpha = Math.max(0, p.opacity);
+        ctx.fillStyle = p.color;
+        if (p.shape === 'rect') {
+          ctx.fillRect(-p.size / 2, -p.size / 3, p.size, (p.size * 2) / 3);
+        } else {
+          ctx.beginPath();
+          ctx.arc(0, 0, p.size / 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      });
+      if (alive && frame < 200) requestAnimationFrame(animate);
+      else canvas.remove();
+    }
+    animate();
+  }
+
+  // Cancel
+  document.getElementById('cancelBtn').addEventListener('click', () => {
+    if (window.electronAPI && window.electronAPI.closeReloginWindow) {
+      window.electronAPI.closeReloginWindow();
+    }
+  });
+
+  // Clear error on input
+  document.getElementById('reloginPassword').addEventListener('input', () => {
+    document.getElementById('reloginPassword').classList.remove('error');
+    document.getElementById('pwError').style.display = 'none';
+  });
+
+  // ========== 窗口高度自适应 ==========
+  function adjustWindowHeight() {
+    setTimeout(() => {
+      const windowEl = document.querySelector('.window');
+      if (!windowEl) return;
+
+      const prevMinHeight = windowEl.style.minHeight;
+      windowEl.style.minHeight = '0';
+      void windowEl.offsetHeight;
+      const totalHeight = windowEl.scrollHeight;
+      windowEl.style.minHeight = prevMinHeight;
+
+      if (totalHeight > 0 && window.electronAPI && window.electronAPI.setWindowHeight) {
+        window.electronAPI.setWindowHeight(totalHeight);
+      }
+    }, 0);
+  }
+
+  // 初始加载时调整一次
+  adjustWindowHeight();
+
+  // 监听内容变化
+  const reloginObserver = new MutationObserver(() => adjustWindowHeight());
+  reloginObserver.observe(document.getElementById('mainContent'), {
+    childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class']
+  });
+</script>
+</body>
+</html>

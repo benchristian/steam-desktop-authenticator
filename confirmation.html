@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://avatars.fastly.steamstatic.com https://avatars.steamstatic.com https://avatars.akamai.steamstatic.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<title>交易确认</title>
+<!-- 在 CSS 加载前立即设置主题，防止深色闪烁 -->
+<script>
+  (function() {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    document.documentElement.setAttribute('data-theme', mq.matches ? 'dark' : 'light');
+    document.documentElement.classList.add('no-transition');
+  })();
+</script>
+<style>
+  /* 初始状态禁用所有过渡，等主题稳定后再恢复 */
+  .no-transition,
+  .no-transition * {
+    transition: none !important;
+    animation: none !important;
+  }
+</style>
+<style>
+  :root {
+    --bg-page: #0d1117;
+    --bg-surface: #161b22;
+    --bg-surface-hover: #1c2128;
+    --bg-input: #0d1117;
+    --border-default: #30363d;
+    --border-focus: #2ea043;
+    --border-error: #f85149;
+    --text-primary: #f0f6fc;
+    --text-secondary: #8b949e;
+    --text-tertiary: #6e7681;
+    --accent: #2ea043;
+    --accent-hover: #3fb950;
+    --accent-pressed: #238636;
+    --danger: #f85149;
+    --warning: #f0883e;
+    --info: #58a6ff;
+    --shadow-modal: 0 20px 50px rgba(0,0,0,0.6);
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+  }
+
+  [data-theme="light"] {
+    --bg-page: #ffffff;
+    --bg-surface: #f4f6f8;
+    --bg-surface-hover: #eef1f4;
+    --bg-input: #ffffff;
+    --border-default: #d0d7de;
+    --border-focus: #1a7f37;
+    --border-error: #cf222e;
+    --text-primary: #1f2328;
+    --text-secondary: #656d76;
+    --text-tertiary: #8c959f;
+    --accent: #1a7f37;
+    --accent-hover: #1f8f3f;
+    --accent-pressed: #136726;
+    --danger: #cf222e;
+    --warning: #9a6700;
+    --info: #0969da;
+    --shadow-modal: 0 20px 50px rgba(0,0,0,0.15);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    min-height: 100%; width: 100%;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #1a1b26 0%, #0d1117 100%);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    color: var(--text-primary);
+  }
+
+  [data-theme="light"] body {
+    background: linear-gradient(135deg, #f4f6f8 0%, #e8ecf0 100%);
+  }
+
+  .window {
+    width: 100%;
+    min-height: 100%;
+    background: var(--bg-surface);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Title bar ── */
+  .titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 48px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border-default);
+    background: rgba(0,0,0,0.15);
+    -webkit-app-region: drag;
+    flex-shrink: 0;
+    position: relative;
+  }
+  [data-theme="light"] .titlebar { background: rgba(255,255,255,0.5); }
+
+  .titlebar-text {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .titlebar-actions {
+    display: flex;
+    gap: 6px;
+    -webkit-app-region: no-drag;
+    position: absolute;
+    right: 16px;
+  }
+
+  .icon-btn {
+    width: 28px; height: 28px;
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    transition: all 0.15s ease;
+  }
+  .icon-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+  }
+  .icon-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .icon-btn.spinning svg { animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Content ── */
+  .content {
+    flex: 1;
+    padding: 20px 24px 40px;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* ── Loading state ── */
+  .loading-body {
+    padding: 70px 32px 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    position: relative;
+    min-height: 360px;
+  }
+
+  /* 3D ring loading animation */
+  .loading-27 {
+    width: 80px;
+    height: 34px;
+    border: 2.5px solid var(--accent);
+    box-sizing: border-box;
+    border-radius: 50%;
+    display: grid;
+    animation: loading-27 2s infinite linear;
+    filter: drop-shadow(0 0 10px var(--accent-glow, rgba(46, 160, 67, 0.25)));
+  }
+
+  .loader-ring {
+    width: 120px;
+    height: 120px;
+    border: 1.5px solid rgba(46, 160, 67, 0.22);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 28px;
+    position: relative;
+  }
+
+  .loader-ring::before {
+    content: '';
+    position: absolute;
+    inset: -1.5px;
+    border-radius: 50%;
+    border: 1.5px solid transparent;
+    border-top-color: var(--accent);
+    animation: ringSpin 2s linear infinite;
+  }
+
+  .loader-ring::after,
+  .loader-ring .ripple {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent);
+    opacity: 0;
+    transform: scale(0.6);
+    pointer-events: none;
+  }
+
+  .loader-ring::after {
+    animation: ripple 2.4s ease-out infinite;
+  }
+
+  .loader-ring .ripple {
+    animation: ripple 2.4s ease-out infinite;
+    animation-delay: 1.2s;
+  }
+
+  @keyframes ripple {
+    0% { opacity: 0.45; transform: scale(0.6); }
+    100% { opacity: 0; transform: scale(1.5); }
+  }
+
+  @keyframes ringSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  .loading-27:before,
+  .loading-27:after {
+    content: "";
+    grid-area: 1/1;
+    border: inherit;
+    border-radius: 50%;
+    animation: inherit;
+    animation-duration: 3s;
+  }
+
+  .loading-27:after {
+    --s: -1;
+  }
+
+  @keyframes loading-27 {
+    100% {
+      transform: rotate(calc(var(--s, 1) * 1turn));
+    }
+  }
+
+  /* Loading text area */
+  .load-text {
+    opacity: 0;
+    animation: fadeInUp 0.5s ease forwards;
+    animation-delay: 0.3s;
+  }
+
+  .load-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: 0.02em;
+    margin-bottom: 8px;
+  }
+
+  .load-sub {
+    font-size: 13px;
+    color: var(--text-secondary);
+    opacity: 0;
+    animation: fadeInUp 0.5s ease forwards;
+    animation-delay: 0.5s;
+  }
+
+  /* Dots typing indicator */
+  .typing-dots {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+    margin-left: 2px;
+  }
+
+  .dot {
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: var(--text-tertiary);
+    animation: dotBounce 1.4s ease-in-out infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 0.16s; }
+  .dot:nth-child(3) { animation-delay: 0.32s; }
+
+  @keyframes dotBounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
+    40% { transform: translateY(-5px); opacity: 1; }
+  }
+
+  /* Progress bar */
+  .progress-area {
+    position: absolute;
+    bottom: 36px;
+    left: 32px;
+    right: 32px;
+    opacity: 0;
+    animation: fadeInUp 0.5s ease forwards;
+    animation-delay: 0.65s;
+  }
+
+  .progress-track {
+    height: 3px;
+    background: var(--border-default);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    width: 35%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    border-radius: 2px;
+    animation: progressPulse 2.2s ease-in-out infinite;
+    position: relative;
+  }
+
+  .progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.25) 50%, transparent 70%);
+    animation: shimmer 1.8s ease-in-out infinite;
+  }
+
+  @keyframes progressPulse {
+    0%, 100% { width: 25%; opacity: 0.6; }
+    50% { width: 68%; opacity: 1; }
+  }
+
+  @keyframes shimmer {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(240%); }
+  }
+
+  [data-theme="light"] .progress-fill {
+    background: linear-gradient(90deg, #1a7f37, #2ea043);
+  }
+
+
+
+  /* ── Loading floating particles ── */
+  .load-particle {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  .lp1 {
+    width: 4px; height: 4px;
+    background: var(--accent);
+    top: 18%; left: 16%;
+    animation: pFloat1 4s ease-in-out infinite;
+    animation-delay: 0.5s;
+  }
+  .lp2 {
+    width: 3px; height: 3px;
+    background: var(--accent-hover);
+    top: 72%; right: 18%;
+    animation: pFloat2 5s ease-in-out infinite;
+    animation-delay: 1.2s;
+  }
+  .lp3 {
+    width: 5px; height: 5px;
+    background: var(--accent);
+    bottom: 24%; left: 26%;
+    animation: pFloat1 4.5s ease-in-out infinite;
+    animation-delay: 2s;
+  }
+  .lp4 {
+    width: 2.5px; height: 2.5px;
+    background: var(--accent-hover);
+    top: 42%; right: 12%;
+    animation: pFloat2 3.5s ease-in-out infinite;
+    animation-delay: 0.8s;
+  }
+
+  @keyframes pFloat1 {
+    0%, 100% { opacity: 0; transform: translate(0, 0); }
+    20% { opacity: 0.5; }
+    80% { opacity: 0.3; transform: translate(12px, -20px); }
+  }
+  @keyframes pFloat2 {
+    0%, 100% { opacity: 0; transform: translate(0, 0); }
+    20% { opacity: 0.4; }
+    80% { opacity: 0.25; transform: translate(-14px, 18px); }
+  }
+
+  /* ── Account bar (shared) ── */
+  .account-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+    padding: 10px 14px;
+    background: rgba(46, 160, 67, 0.08);
+    border: 1px solid rgba(46, 160, 67, 0.18);
+    border-radius: var(--radius-md);
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  [data-theme="light"] .account-bar {
+    background: rgba(26, 127, 55, 0.06);
+    border-color: rgba(26, 127, 55, 0.14);
+  }
+
+  /* Shimmer sweep on account bar */
+  .account-bar::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -80%;
+    width: 60%; height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(46, 160, 67, 0.04) 40%,
+      rgba(46, 160, 67, 0.09) 50%,
+      rgba(46, 160, 67, 0.04) 60%,
+      transparent 100%
+    );
+    animation: shimmerSlide 5s ease-in-out infinite;
+    pointer-events: none;
+  }
+  [data-theme="light"] .account-bar::after {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(26, 127, 55, 0.03) 40%,
+      rgba(26, 127, 55, 0.07) 50%,
+      rgba(26, 127, 55, 0.03) 60%,
+      transparent 100%
+    );
+  }
+
+  /* Account bar: error state (red shimmer) */
+  .account-bar.is-error {
+    background: rgba(248, 81, 73, 0.07) !important;
+    border-color: rgba(248, 81, 73, 0.18) !important;
+  }
+  [data-theme="light"] .account-bar.is-error {
+    background: rgba(207, 34, 46, 0.05) !important;
+    border-color: rgba(207, 34, 46, 0.13) !important;
+  }
+  .account-bar.is-error::after {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(248, 81, 73, 0.05) 40%,
+      rgba(248, 81, 73, 0.11) 50%,
+      rgba(248, 81, 73, 0.05) 60%,
+      transparent 100%
+    ) !important;
+  }
+  [data-theme="light"] .account-bar.is-error::after {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(207, 34, 46, 0.04) 40%,
+      rgba(207, 34, 46, 0.09) 50%,
+      rgba(207, 34, 46, 0.04) 60%,
+      transparent 100%
+    ) !important;
+  }
+  @keyframes shimmerSlide {
+    0%   { left: -80%; }
+    100% { left: 180%; }
+  }
+
+  .account-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    z-index: 1;
+  }
+  .account-avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2ea043, #238636);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .account-avatar img {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+  }
+  [data-theme="light"] .account-avatar {
+    background: linear-gradient(135deg, #1a7f37, #136726);
+  }
+  .account-avatar.is-error {
+    background: linear-gradient(135deg, #f85149, #da3633) !important;
+  }
+  [data-theme="light"] .account-avatar.is-error {
+    background: linear-gradient(135deg, #cf222e, #a40e26) !important;
+  }
+  .account-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .account-hint {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 1px;
+  }
+
+  /* ── Empty state ── */
+  .empty-state {
+    text-align: center;
+    padding: 44px 20px 28px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Floating particles container */
+  .empty-particles {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .particle {
+    position: absolute;
+    bottom: -14px;
+    border-radius: 50%;
+    background: rgba(46, 160, 67, 0.3);
+    animation: particleRise linear infinite;
+  }
+  [data-theme="light"] .particle {
+    background: rgba(26, 127, 55, 0.22);
+  }
+  .particle:nth-child(1) { left: 10%; width: 3px; height: 3px; animation-duration: 5.0s; animation-delay: 0s; }
+  .particle:nth-child(2) { left: 25%; width: 5px; height: 5px; animation-duration: 7.2s; animation-delay: 1.3s; opacity: 0.45; }
+  .particle:nth-child(3) { left: 48%; width: 3px; height: 3px; animation-duration: 4.4s; animation-delay: 0.4s; }
+  .particle:nth-child(4) { left: 65%; width: 4px; height: 4px; animation-duration: 6.5s; animation-delay: 2.1s; opacity: 0.4; }
+  .particle:nth-child(5) { left: 82%; width: 3px; height: 3px; animation-duration: 5.8s; animation-delay: 0.7s; }
+  .particle:nth-child(6) { left: 40%; width: 2px; height: 2px; animation-duration: 8.5s; animation-delay: 3.5s; opacity: 0.25; }
+  @keyframes particleRise {
+    0%   { transform: translateY(0) scale(1);   opacity: 0; }
+    8%  { opacity: 1; }
+    85% { opacity: 0.5; }
+    100% { transform: translateY(-240px) scale(0.2); opacity: 0; }
+  }
+
+  /* Checkmark button (empty state) */
+  .empty-check-trigger {
+    width: 64px; height: 64px;
+    margin: 0 auto 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    animation:
+      fadeInUp 0.4s ease both,
+      pulseSubtle 2.8s ease-in-out infinite 0.9s,
+      floatBob 3.8s ease-in-out infinite 0.6s;
+    box-shadow: 0 4px 16px rgba(46, 160, 67, 0.3);
+    position: relative;
+  }
+  .empty-check-trigger::before {
+    content: '';
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    border: 2px solid rgba(46, 160, 67, 0.0);
+    transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .empty-check-trigger:hover::before {
+    border-color: rgba(46, 160, 67, 0.4);
+    inset: -11px;
+  }
+  [data-theme="light"] .empty-check-trigger:hover::before {
+    border-color: rgba(26, 127, 55, 0.3);
+  }
+  .empty-check-trigger.ripple::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 50%;
+    border: 2.5px solid rgba(46, 160, 67, 0.6);
+    animation: rippleOut 0.65s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    pointer-events: none;
+  }
+  @keyframes rippleOut {
+    0%   { transform: scale(0.7); opacity: 0.8; }
+    100% { transform: scale(1.9); opacity: 0; }
+  }
+  .empty-check-trigger:hover {
+    transform: translateY(-5px) scale(1.1) !important;
+    box-shadow: 0 8px 30px rgba(46, 160, 67, 0.45);
+  }
+  .empty-check-trigger:active {
+    transform: translateY(0) scale(0.94) !important;
+    transition-duration: 0.08s;
+  }
+  .empty-check-trigger:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 3px;
+  }
+  @keyframes floatBob {
+    0%, 100% { transform: translateY(0); }
+    50%       { transform: translateY(-5px); }
+  }
+  @keyframes pulseSubtle {
+    0%, 100% { box-shadow: 0 4px 16px rgba(46, 160, 67, 0.3); }
+    50%      { box-shadow: 0 4px 26px rgba(46, 160, 67, 0.5); }
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .empty-check-trigger.scanning {
+    animation: none !important;
+    pointer-events: none;
+    opacity: 0.65;
+  }
+  .empty-check-trigger.scanning::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    border-top-color: transparent;
+    animation: spin 0.75s linear infinite;
+    opacity: 0.7;
+  }
+
+  .empty-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+    animation: fadeInUp 0.4s ease 0.1s both;
+  }
+  .empty-desc {
+    font-size: 13.5px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    max-width: 260px;
+    margin: 0 auto;
+    animation: fadeInUp 0.4s ease 0.18s both;
+  }
+  .empty-meta {
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    animation: fadeInUp 0.4s ease 0.26s both;
+  }
+  .empty-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    background: var(--bg-surface-hover);
+    border-radius: 999px;
+  }
+  .empty-meta svg {
+    animation: clockSwing 3.5s ease-in-out infinite;
+    transform-origin: 12px 12px;
+  }
+  @keyframes clockSwing {
+    0%, 100% { transform: rotate(0deg); }
+    30%       { transform: rotate(4deg); }
+    70%       { transform: rotate(-4deg); }
+  }
+
+  /* ── Error state (credentials expired) ── */
+  .error-state {
+    text-align: center;
+    padding: 36px 24px 28px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .error-icon-wrap {
+    position: relative;
+    display: inline-flex;
+    margin-bottom: 18px;
+  }
+  .error-icon {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #f85149, #da3633);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    animation: errorPopIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+    box-shadow:
+      0 4px 24px rgba(248, 81, 73, 0.35),
+      0 0 0 1px rgba(255,255,255,0.06) inset;
+    flex-shrink: 0;
+  }
+  .error-ring {
+    position: absolute;
+    top: -4px; left: -4px; right: -4px; bottom: -4px;
+    border-radius: 50%;
+    border: 2px solid var(--danger);
+    opacity: 0;
+    animation: ringExpandError 1s ease 0.3s forwards;
+  }
+  @keyframes ringExpandError {
+    0% { transform: scale(0.9); opacity: 0.5; }
+    100% { transform: scale(1.5); opacity: 0; }
+  }
+  @keyframes errorPopIn {
+    from { opacity: 0; transform: scale(0.45) rotate(-6deg); }
+    to   { opacity: 1; transform: scale(1) rotate(0); }
+  }
+  .error-title {
+    font-size: 18px;
+    font-weight: 650;
+    letter-spacing: -0.2px;
+    margin-bottom: 8px;
+    animation: fadeUp 0.45s ease 0.2s both;
+  }
+  .error-desc {
+    font-size: 13.5px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    max-width: 280px;
+    margin: 0 auto 22px;
+    animation: fadeUp 0.45s ease 0.32s both;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .error-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    animation: fadeUp 0.45s ease 0.42s both;
+  }
+  .btn-relogin {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    border: none;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: white;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 10px rgba(46, 160, 67, 0.25);
+    font-family: inherit;
+  }
+  .btn-relogin:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 18px rgba(46, 160, 67, 0.35);
+  }
+  .btn-relogin:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  .btn-relogin:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .btn-relogin.loading {
+    opacity: 0.75;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  .error-hint {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* ── Trade list (pending state) ── */
+  .trade-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+  }
+  .trade-count {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+  .trade-count strong {
+    color: var(--warning);
+    position: relative;
+    display: inline-block;
+    animation: countPulse 2s ease-in-out infinite;
+  }
+  @keyframes countPulse {
+    0%, 100% { transform: scale(1); }
+    50%       { transform: scale(1.12); color: #f0883e; }
+  }
+  .trade-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+    overflow-y: visible;
+    min-height: 0;
+  }
+
+  .trade-card {
+    background: var(--bg-input);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    animation: cardSlideIn 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .trade-card:nth-child(4) { animation-delay: 0.34s; }
+  @keyframes cardSlideIn {
+    from { opacity: 0; transform: translateX(18px) translateY(6px); }
+    to   { opacity: 1; transform: translateX(0) translateY(0); }
+  }
+  .trade-card:hover {
+    border-color: rgba(46, 160, 67, 0.30);
+    box-shadow:
+      0 4px 20px rgba(0,0,0,0.20),
+      0 0 24px rgba(46, 160, 67, 0.10);
+    transform: translateY(-2px);
+  }
+  [data-theme="light"] .trade-card:hover {
+    border-color: rgba(26, 127, 55, 0.40);
+    box-shadow:
+      0 4px 20px rgba(0,0,0,0.10),
+      0 0 28px rgba(26, 127, 55, 0.13);
+  }
+  .trade-card:active {
+    transform: translateY(0);
+    transition-duration: 0.08s;
+  }
+
+  /* Card exit animation (confirm/reject) */
+  .trade-card.card-exiting {
+    animation: cardExit 0.38s cubic-bezier(0.55, 0.06, 0.68, 0.19) forwards;
+  }
+  @keyframes cardExit {
+    0%   { opacity: 1; transform: translateX(0) scale(1); max-height: 300px; margin-bottom: 10px; }
+    60%  { opacity: 0.4; transform: translateX(40px) scale(0.96); }
+    100% { opacity: 0; transform: translateX(80px) scale(0.92); max-height: 0; padding: 0; margin-bottom: 0; border-width: 0; }
+  }
+  .trade-card.card-exited {
+    display: none;
+  }
+
+  .trade-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  /* ── Trade partner (交易对象) ── */
+  .trade-partner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .trade-avatar {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #58a6ff, #388bfd);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    flex-shrink: 0;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .trade-avatar.market-icon {
+    background: linear-gradient(135deg, #f0883e, #d4731a);
+  }
+  [data-theme="light"] .trade-avatar.market-icon {
+    background: linear-gradient(135deg, #f0883e, #d4731a);
+  }
+  .trade-avatar-img {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .trade-card:hover .trade-avatar-img {
+    transform: scale(1.08);
+    box-shadow: 0 2px 10px rgba(88, 166, 255, 0.25);
+  }
+  .trade-avatar-fallback {
+    /* 头像加载失败时的首字母回退 */
+  }
+  [data-theme="light"] .trade-avatar {
+    background: linear-gradient(135deg, #0969da, #0550ae);
+  }
+  .trade-card:hover .trade-avatar {
+    transform: scale(1.08);
+    box-shadow: 0 2px 10px rgba(88, 166, 255, 0.25);
+  }
+  .trade-partner-info .trade-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .trade-partner-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .trade-partner-id {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 1px;
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  }
+
+  /* ── Type badge (替代原 trade-type-badge) ── */
+  .trade-type-badge {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+  }
+  .trade-type-badge.trade {
+    background: rgba(46, 160, 67, 0.12);
+    color: var(--accent);
+  }
+  .trade-type-badge.market {
+    background: rgba(240, 136, 62, 0.12);
+    color: var(--warning);
+  }
+  .trade-type-badge.other {
+    background: rgba(240, 136, 62, 0.12);
+    color: var(--warning);
+  }
+  [data-theme="light"] .trade-type-badge.trade { background: rgba(26, 127, 55, 0.1); }
+  [data-theme="light"] .trade-type-badge.market { background: rgba(154, 103, 0, 0.1); }
+  [data-theme="light"] .trade-type-badge.other { background: rgba(154, 103, 0, 0.1); }
+
+  .trade-time-badge {
+    font-size: 11.5px;
+    padding: 3px 9px;
+    background: rgba(240, 136, 62, 0.12);
+    color: var(--warning);
+    border-radius: 999px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: box-shadow 0.2s ease;
+  }
+  [data-theme="light"] .trade-time-badge {
+    background: rgba(154, 103, 0, 0.1);
+  }
+  .trade-card:hover .trade-time-badge {
+    box-shadow: 0 0 8px rgba(240, 136, 62, 0.15);
+  }
+  [data-theme="light"] .trade-card:hover .trade-time-badge {
+    box-shadow: 0 0 8px rgba(240, 136, 62, 0.25);
+  }
+
+  /* ── Trade items ── */
+  .trade-items {
+    background: var(--bg-surface);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+  .trade-item-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+  }
+  .trade-item-row + .trade-item-row { margin-top: 2px; }
+  .trade-item-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-tertiary);
+    flex-shrink: 0;
+    transition: background 0.2s ease, transform 0.2s ease;
+  }
+  .trade-item-dot.outgoing { background: var(--danger); }
+  .trade-item-dot.incoming { background: var(--accent); }
+  .trade-item-name { color: var(--text-primary); flex: 1; }
+  .trade-item-dir {
+    font-size: 10.5px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  .trade-item-dir.outgoing-dir {
+    background: rgba(248, 81, 73, 0.1);
+    color: var(--danger);
+  }
+  .trade-item-dir.incoming-dir {
+    background: rgba(46, 160, 67, 0.1);
+    color: var(--accent);
+  }
+  [data-theme="light"] .trade-item-dir.outgoing-dir {
+    background: rgba(207, 34, 46, 0.08);
+  }
+  [data-theme="light"] .trade-item-dir.incoming-dir {
+    background: rgba(26, 127, 55, 0.08);
+  }
+
+  /* ── 市场购买物品区 ── */
+  .trade-items.market-items {
+    background: rgba(240, 136, 62, 0.06);
+    border: 1px solid rgba(240, 136, 62, 0.12);
+  }
+  [data-theme="light"] .trade-items.market-items {
+    background: rgba(154, 103, 0, 0.04);
+    border-color: rgba(154, 103, 0, 0.1);
+  }
+  .trade-items.market-items .trade-item-row {
+    color: var(--text-primary);
+  }
+  .trade-card:hover .trade-item-dot:not(.outgoing):not(.incoming) {
+    background: var(--accent) !important;
+    transform: scale(1.15);
+  }
+  .trade-card:hover .trade-item-dot.outgoing {
+    background: var(--danger) !important;
+    transform: scale(1.15);
+  }
+  .trade-card:hover .trade-item-dot.incoming {
+    background: var(--accent) !important;
+    transform: scale(1.15);
+  }
+
+  /* ── Trade description (fallback when no items) ── */
+  .trade-desc {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+  }
+  .trade-detail {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+
+  /* ── Trade actions ── */
+  .trade-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+    flex: 1;
+    font-family: inherit;
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .btn-reject {
+    background: transparent;
+    color: var(--danger);
+    border-color: var(--border-default);
+  }
+  .btn-reject:hover:not(:disabled) {
+    background: rgba(248, 81, 73, 0.08);
+    border-color: var(--danger);
+  }
+  .btn-confirm {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-confirm:hover:not(:disabled) { background: var(--accent-hover); }
+
+  /* Double-check mode (first click) */
+  .btn-confirm.btn-double-check {
+    background: var(--warning);
+    animation: doubleCheckPulse 0.6s ease-in-out infinite;
+  }
+  [data-theme="light"] .btn-confirm.btn-double-check {
+    background: #9a6700;
+  }
+  @keyframes doubleCheckPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(240, 136, 62, 0.35); }
+    50%       { box-shadow: 0 0 0 6px rgba(240, 136, 62, 0); }
+  }
+
+  /* Confirm success pop */
+  .btn-confirm.btn-success {
+    background: var(--accent-pressed) !important;
+    pointer-events: none;
+    animation: confirmPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+  @keyframes confirmPop {
+    0%   { transform: scale(0.92); }
+    60%  { transform: scale(1.04); }
+    100% { transform: scale(1); }
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-block {
+    width: 100%;
+    justify-content: center;
+    padding: 12px;
+    font-size: 14px;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+
+  .trade-confirming .btn-confirm {
+    pointer-events: none;
+  }
+  .trade-confirming .btn-confirm svg {
+    animation: spin 0.8s linear infinite;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* ── Reduced motion support ── */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="window" role="dialog" aria-modal="true" aria-labelledby="titleText">
+  <div class="titlebar">
+    <span class="titlebar-text" id="titleText">交易确认</span>
+    <div class="titlebar-actions">
+      <button class="icon-btn" id="refreshBtn" aria-label="刷新" title="刷新交易列表">
+        <svg id="refreshIcon" width="18" height="18" viewBox="0 0 1024 1024" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+          <path d="M272.896 235.227429A365.714286 365.714286 0 0 1 811.885714 721.92L694.857143 512H804.571429a292.571429 292.571429 0 0 0-495.177143-211.090286l-36.571429-65.828571z m478.134857 553.472A365.714286 365.714286 0 0 1 212.114286 302.08L329.142857 512H219.428571a292.571429 292.571429 0 0 0 495.177143 211.090286z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="content" id="mainContent">
+    <!-- Dynamic content rendered by JS -->
+  </div>
+</div>
+
+<script src="confirmation-renderer.js"></script>
+</body>
+</html>

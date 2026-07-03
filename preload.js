@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   confirmTrade: (data) => ipcRenderer.invoke('confirm-trade', data),
 
   // 头像获取
-  getSteamAvatar: (steamId) => ipcRenderer.invoke('get-steam-avatar', steamId),
+  getSteamAvatar: (steamId, webCookies) => ipcRenderer.invoke('get-steam-avatar', { steamId, webCookies }),
 
   // 根据 SteamID 获取玩家名称
   fetchPlayerNames: (steamIds) => ipcRenderer.invoke('fetch-player-names', steamIds),

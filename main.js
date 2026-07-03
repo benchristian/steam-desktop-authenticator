@@ -334,6 +334,33 @@ function updateTrayMenu() {
 }
 
 // ============ 数据存储 ============
+// 一次性迁移：修复已保存 maFile 中 steamLoginSecure 的错误 SteamID 前缀
+function migrateFixSteamLoginSecureCookies() {
+  try {
+    if (!fs.existsSync(DATA_FILE)) return;
+    const files = fs.readdirSync(DATA_FILE).filter(f => f.endsWith('.maFile'));
+    let fixedCount = 0;
+    for (const file of files) {
+      const filePath = path.join(DATA_FILE, file);
+      const rawContent = fs.readFileSync(filePath, 'utf-8');
+      const data = JSON.parse(rawContent);
+      const steamId = data.SteamID || (data.Session && data.Session.SteamID);
+      const webCookies = data.web_cookies || '';
+      if (!steamId || !webCookies) continue;
+      const fixed = fixSteamLoginSecureCookie(webCookies, String(steamId));
+      if (fixed !== webCookies) {
+        data.web_cookies = fixed;
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+        fixedCount++;
+        console.log('[migrate] 修复 cookie 前缀:', file);
+      }
+    }
+    if (fixedCount > 0) console.log('[migrate] 共修复', fixedCount, '个 maFile 的 steamLoginSecure');
+  } catch (e) {
+    console.error('[migrate] 修复 cookie 前缀失败:', e.message);
+  }
+}
+
 function loadAccounts() {
   try {
     if (!fs.existsSync(DATA_FILE)) fs.mkdirSync(DATA_FILE, { recursive: true });
@@ -420,7 +447,7 @@ function updateAccountAccessToken(steamId, accessToken, webCookies) {
       const dataSteamId = data.SteamID || data.steamid || (data.Session && data.Session.SteamID);
       if (String(dataSteamId) === String(steamId)) {
         data.access_token = accessToken;
-        if (webCookies) data.web_cookies = webCookies;
+        if (webCookies) data.web_cookies = fixSteamLoginSecureCookie(webCookies, steamId);
         // 如果文件名不是 SteamID 格式，重命名为 SteamID.maFile
         const expectedFilename = `${steamId}.maFile`;
         const targetPath = path.join(DATA_FILE, expectedFilename);
@@ -762,6 +789,48 @@ async function finalizeWithCode(accessToken, steamId, code, codeType, sharedSecr
 
 
 
+// 从 Steam web cookie 的 steamLoginSecure JWT 中解析 sub（即 Steam 登录态实际身份）
+// 从 Steam web cookie 的 steamLoginSecure JWT 中解析 sub（即 Steam 登录态实际身份）
+function getSteamIdFromWebCookie(webCookies) {
+  if (!webCookies) return null;
+  try {
+    const match = webCookies.match(/steamLoginSecure=([^;]+)/);
+    if (!match) return null;
+    let value = decodeURIComponent(match[1]);
+    // 值格式: "steamId||JWT" 或 "steamId%7C%7CJWT"（已经 decodeURIComponent 后变成 "steamId||JWT"）
+    const sepIdx = value.indexOf('||');
+    if (sepIdx === -1) return null;
+    const jwt = value.substring(sepIdx + 2);
+    const parts = jwt.split('.');
+    if (parts.length !== 3) return null;
+    let payload = parts[1];
+    payload += '='.repeat((4 - payload.length % 4) % 4);
+    const decoded = JSON.parse(Buffer.from(payload, 'base64').toString('utf-8'));
+    return decoded.sub || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 为交易确认统一 cookie 中 steamLoginSecure 的前缀与 JWT sub，解决 steam-session 生成的 access_token sub 错误问题
+function getEffectiveConfirmationCookies(webCookies, steamId) {
+  if (!webCookies) return { effectiveSteamId: steamId, effectiveCookies: webCookies };
+  const cookieSub = getSteamIdFromWebCookie(webCookies);
+  if (!cookieSub || String(cookieSub) === String(steamId)) {
+    return { effectiveSteamId: steamId, effectiveCookies: webCookies };
+  }
+  const prefixMatch = webCookies.match(/steamLoginSecure=(\d+)/);
+  const cookiePrefix = prefixMatch ? prefixMatch[1] : null;
+  let effectiveCookies = webCookies;
+  if (cookiePrefix && String(cookiePrefix) !== String(cookieSub)) {
+    effectiveCookies = webCookies.replace(/(steamLoginSecure=)\d+/, `$1${cookieSub}`);
+    console.log(`[getEffectiveConfirmationCookies] cookie 前缀与 JWT sub 不一致 (prefix=${cookiePrefix}, sub=${cookieSub}), 已统一为 sub`);
+  }
+  console.log(`[getEffectiveConfirmationCookies] 使用 cookie 中的 SteamID: ${cookieSub}`);
+  return { effectiveSteamId: cookieSub, effectiveCookies };
+}
+
+
 function generateDeviceId(steamId) {
   // 使用 steam-totp 的 getDeviceID，与 node-steamcommunity / SDA 保持一致
   try {
@@ -809,6 +878,15 @@ function parseSteamIdFromToken(accessToken) {
     console.error('[parseSteamIdFromToken] 解析失败:', e.message);
     return null;
   }
+}
+
+// 修复 steam-session 生成的 steamLoginSecure cookie 中错误的 SteamID 前缀
+// cookie 值可能是 "steamId||JWT" 或 URL 编码的 "steamId%7C%7CJWT"
+function fixSteamLoginSecureCookie(webCookies, correctSteamId) {
+  if (!webCookies || !correctSteamId) return webCookies;
+  return webCookies
+    .replace(/(steamLoginSecure=)\d+(\|\|)/, `$1${correctSteamId}$2`)
+    .replace(/(steamLoginSecure=)\d+(%7C%7C)/, `$1${correctSteamId}$2`);
 }
 
 // ============ 移除令牌 ============
@@ -876,7 +954,7 @@ async function steamSessionLoginPhase1(username, password) {
           accountName: session.accountName,
           accessToken: session.accessToken,
           refreshToken: session.refreshToken,
-          webCookies: webCookies.join('; ')
+          webCookies: fixSteamLoginSecureCookie(webCookies.join('; '), correctSteamId)
         });
       } catch (e) {
         delete loginSessions[sessionId];
@@ -980,7 +1058,7 @@ async function steamSessionLoginPhase2(sessionId, guardCode) {
           accountName: session.accountName,
           accessToken: session.accessToken,
           refreshToken: session.refreshToken,
-          webCookies: webCookies.join('; ')
+          webCookies: fixSteamLoginSecureCookie(webCookies.join('; '), correctSteamId)
         });
       } catch (e) {
         delete loginSessions[sessionId];
@@ -1567,13 +1645,21 @@ function setupIPC() {
         return { success: false, error: '缺少 steamId' };
       }
 
+      // Steam 的 MobileApp access_token JWT sub 可能与账号真实 SteamID 不一致（steam-session bug）。
+      // 交易确认校验的是 cookie 内部一致性，因此这里把 steamLoginSecure 前缀统一到 JWT sub，
+      // 并用该 sub 作为请求参数，避免前缀/sub 不一致导致 Steam 认为凭证无效。
+      const { effectiveSteamId, effectiveCookies } = getEffectiveConfirmationCookies(webCookies, steamId);
+      if (String(effectiveSteamId) !== String(steamId)) {
+        console.log(`[get-confirmations] 使用 cookie 中的 SteamID 请求: ${effectiveSteamId}`);
+      }
+
       const timeKey = Math.floor(Date.now() / 1000);
       const confirmationKey = generateConfirmationKey(identitySecret, timeKey, 'conf');
 
       // 构建查询参数
       const queryParams = new URLSearchParams({
-        p: deviceId || generateDeviceId(steamId),
-        a: String(steamId),
+        p: deviceId || generateDeviceId(effectiveSteamId),
+        a: String(effectiveSteamId),
         k: confirmationKey,
         t: String(timeKey),
         m: 'react',
@@ -1584,7 +1670,7 @@ function setupIPC() {
 
       console.log('[get-confirmations] 请求 mobileconf/getlist, steamId:', steamId);
 
-      const listResult = await steamCommunityRequest('GET', path, null, webCookies || null);
+      const listResult = await steamCommunityRequest('GET', path, null, effectiveCookies || null);
 
       console.log('[get-confirmations] 原始响应:', JSON.stringify(listResult).substring(0, 2000));
 
@@ -1637,6 +1723,12 @@ function setupIPC() {
 
   ipcMain.handle('confirm-trade', async (event, { steamId, identitySecret, confirmationId, confirmationKey, action, deviceId, webCookies }) => {
     try {
+      // 处理 steam-session access_token sub 与真实 SteamID 不一致的情况
+      const { effectiveSteamId, effectiveCookies } = getEffectiveConfirmationCookies(webCookies, steamId);
+      if (String(effectiveSteamId) !== String(steamId)) {
+        console.log(`[confirm-trade] 使用 cookie 中的 SteamID: ${effectiveSteamId}`);
+      }
+
       const timeKey = Math.floor(Date.now() / 1000);
       const tag = action === 'allow' ? 'allow' : 'cancel';
       const key = generateConfirmationKey(identitySecret, timeKey, tag);
@@ -1645,8 +1737,8 @@ function setupIPC() {
         op: action || 'allow',
         cid: confirmationId,
         ck: confirmationKey,
-        p: deviceId || generateDeviceId(steamId),
-        a: String(steamId),
+        p: deviceId || generateDeviceId(effectiveSteamId),
+        a: String(effectiveSteamId),
         k: key,
         t: String(timeKey),
         m: 'react',
@@ -1660,7 +1752,7 @@ function setupIPC() {
         'GET',
         '/mobileconf/ajaxop?' + new URLSearchParams(params).toString(),
         null,
-        webCookies || null
+        effectiveCookies || null
       );
 
       console.log('[confirm-trade] 响应:', JSON.stringify(result));
@@ -1677,15 +1769,22 @@ function setupIPC() {
   });
 
   // ============ 头像获取 ============
-  ipcMain.handle('get-steam-avatar', async (event, steamId) => {
+  ipcMain.handle('get-steam-avatar', async (event, { steamId, webCookies }) => {
     try {
       // 1. 从 Steam 社区 XML 获取头像 URL
-      const avatarUrl = await fetchSteamAvatarUrl(steamId);
+      let avatarUrl = await fetchSteamAvatarUrl(steamId);
+
+      // 2. 如果 XML 没有（缓存延迟），尝试用 cookie 从 HTML 页面提取
+      if (!avatarUrl && webCookies) {
+        console.log(`[avatar] XML 无头像，尝试用 cookie 获取: ${steamId}`);
+        avatarUrl = await fetchSteamAvatarFromHtml(steamId, webCookies);
+      }
+
       if (!avatarUrl) {
         return { success: false, error: '无法获取头像 URL' };
       }
 
-      // 2. 在 main 进程下载头像，转为 base64 data URI（避免 CSP 问题）
+      // 3. 在 main 进程下载头像，转为 base64 data URI（避免 CSP 问题）
       const dataUri = await downloadImageAsDataUri(avatarUrl);
       if (dataUri) {
         return { success: true, url: dataUri };
@@ -2960,7 +3059,14 @@ function setupIPC() {
         if (!steamId) return done({ success: false, error: '缺少 steamId' });
         if (!webCookies) return done({ success: false, error: '缺少 web_cookies，请先重新登录' });
 
-        console.log('[random-avatar] 开始随机头像生成, steamId:', steamId);
+        // 处理 steam-session access_token sub 与传入 SteamID 不一致的问题
+        // Steam 社区页面会校验 steamLoginSecure 前缀与 JWT sub 的一致性，不一致则判定 Cookie 无效
+        const { effectiveSteamId, effectiveCookies } = getEffectiveConfirmationCookies(webCookies, steamId);
+        if (String(effectiveSteamId) !== String(steamId)) {
+          console.log(`[random-avatar] 检测到 cookie 身份不一致: 传入=${steamId}, cookie sub=${effectiveSteamId}, 将使用 ${effectiveSteamId} 请求`);
+        }
+
+        console.log('[random-avatar] 开始随机头像生成, steamId:', steamId, 'effectiveSteamId:', effectiveSteamId);
 
         bw = new BrowserWindow({
           width: 200, height: 200,
@@ -2968,8 +3074,8 @@ function setupIPC() {
           webPreferences: { nodeIntegration: false, contextIsolation: true }
         });
 
-        // 设置 Steam 登录 cookies
-        const cookieStrings = webCookies.split(';').map(c => c.trim()).filter(Boolean);
+        // 设置 Steam 登录 cookies（使用统一后的 cookie，确保前缀与 JWT sub 一致）
+        const cookieStrings = effectiveCookies.split(';').map(c => c.trim()).filter(Boolean);
         const expiry = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
         const importantCookies = ['sessionid', 'steamLoginSecure', 'steamLogin', 'steamRefresh_steam', 'browserid', 'steamCountry'];
 
@@ -3045,9 +3151,9 @@ function setupIPC() {
           return done({ success: false, error: '读取本地头像失败: ' + err.message });
         }
 
-        // 加载 Steam profile 页面建立 Cookie 上下文
-        const profileUrl = `https://steamcommunity.com/profiles/${steamId}`;
-        console.log('[random-avatar] 加载 profile 页面:', profileUrl);
+        // 加载 Steam 头像编辑页建立正确的 Cookie / session 上下文
+        const profileUrl = `https://steamcommunity.com/profiles/${effectiveSteamId}/edit/avatar`;
+        console.log('[random-avatar] 加载头像编辑页:', profileUrl);
 
         bw.webContents.on('did-finish-load', async () => {
           const currentUrl = bw.webContents.getURL();
@@ -3056,6 +3162,16 @@ function setupIPC() {
           if (currentUrl.includes('/login/') || currentUrl.includes('login.steampowered.com')) {
             return done({ success: false, error: 'Steam 登录态已过期，web_cookies 无效' });
           }
+
+          // 页面加载后重新读取最新的 sessionid（Steam 可能会在加载时刷新）
+          try {
+            const freshCookies = await bw.webContents.session.cookies.get({ domain: 'steamcommunity.com', name: 'sessionid' });
+            if (freshCookies && freshCookies.length > 0 && freshCookies[0].value) {
+              sessionId = freshCookies[0].value;
+              console.log('[random-avatar] 使用页面加载后的 sessionid:', sessionId.substring(0, 10) + '...');
+            }
+          } catch (_) {}
+          if (!sessionId) return done({ success: false, error: '无法获取 sessionid' });
 
           try {
             // 直接将本地头像图片上传到 Steam（不做任何裁剪/转换处理）
@@ -3082,7 +3198,7 @@ function setupIPC() {
                   var formData = new FormData();
                   formData.append('MAX_FILE_SIZE', avatarBlob.size);
                   formData.append('type', 'player_avatar_image');
-                  formData.append('sId', ${JSON.stringify(steamId)});
+                  formData.append('sId', ${JSON.stringify(effectiveSteamId)});
                   formData.append('sessionid', ${JSON.stringify(sessionId)});
                   formData.append('doSub', '1');
                   formData.append('json', '1');
@@ -3092,7 +3208,7 @@ function setupIPC() {
                     method: 'POST',
                     headers: {
                       'Origin': 'https://steamcommunity.com',
-                      'Referer': ${JSON.stringify('https://steamcommunity.com/profiles/' + steamId + '/edit/avatar')}
+                      'Referer': ${JSON.stringify('https://steamcommunity.com/profiles/' + effectiveSteamId + '/edit/avatar')}
                     },
                     body: formData,
                     credentials: 'include'
@@ -3153,36 +3269,144 @@ function setupIPC() {
   });
 
 // ============ 通过 SteamID 获取玩家头像 ============
-// 使用 steamcommunity.com 的 XML 接口，不需要 API key
+// 使用 XML 接口获取头像 URL
+// 注意：Steam XML 接口存在缓存延迟（几分钟到几十分钟），刚上传的头像可能不立即返回
 function fetchSteamAvatarUrl(steamId64) {
   return new Promise((resolve) => {
     const { net } = require('electron');
     const request = net.request({
       method: 'GET',
-      url: `https://steamcommunity.com/profiles/${steamId64}/?xml=1`
+      url: `https://steamcommunity.com/profiles/${steamId64}/?xml=1`,
+      headers: { 'Cache-Control': 'no-cache, no-store', 'Pragma': 'no-cache' }
     });
 
     let data = '';
     request.on('response', (response) => {
       response.on('data', (chunk) => { data += chunk.toString(); });
       response.on('end', () => {
-        // 从 XML 中提取 <avatarFull> 或 <avatarMedium> URL
+        // 尝试提取 <avatarFull>
         const fullMatch = data.match(/<avatarFull><!\[CDATA\[(.+?)\]\]><\/avatarFull>/);
         if (fullMatch && fullMatch[1]) {
+          console.log(`[avatar] XML avatarFull: ${steamId64}`);
           resolve(fullMatch[1]);
           return;
         }
+        // 尝试提取 <avatarMedium>
         const mediumMatch = data.match(/<avatarMedium><!\[CDATA\[(.+?)\]\]><\/avatarMedium>/);
         if (mediumMatch && mediumMatch[1]) {
           resolve(mediumMatch[1]);
           return;
         }
+        // 尝试提取 <avatarIcon>
+        const iconMatch = data.match(/<avatarIcon><!\[CDATA\[(.+?)\]\]><\/avatarIcon>/);
+        if (iconMatch && iconMatch[1]) {
+          resolve(iconMatch[1]);
+          return;
+        }
+        console.log(`[avatar] XML 无头像: ${steamId64}`);
         resolve(null);
       });
       response.on('error', () => { resolve(null); });
     });
     request.on('error', () => { resolve(null); });
     request.end();
+  });
+}
+
+// 当 XML 接口缓存未更新时，通过带 cookie 的 session 请求 HTML 页面提取头像
+function fetchSteamAvatarFromHtml(steamId64, webCookies) {
+  return new Promise(async (resolve) => {
+    try {
+      const profileUrl = `https://steamcommunity.com/profiles/${steamId64}/`;
+
+      // 使用 Electron 的 net.request（自动走系统代理），
+      // 但通过 session 预置 cookie 来绕过 httpOnly 限制
+      const ses = session.defaultSession;
+      const cookieDomain = 'https://steamcommunity.com';
+
+      // 解析 cookie 字符串并逐个设置到 session
+      if (webCookies) {
+        const cookiePairs = webCookies.split(';').map(c => c.trim()).filter(c => c);
+        for (const pair of cookiePairs) {
+          const eqIdx = pair.indexOf('=');
+          if (eqIdx <= 0) continue;
+          const name = pair.substring(0, eqIdx).trim();
+          const value = pair.substring(eqIdx + 1).trim();
+          try {
+            await ses.cookies.set({
+              url: cookieDomain,
+              name: name,
+              value: value,
+              httpOnly: false,
+              secure: true,
+              sameSite: 'no_restriction'
+            });
+          } catch (e) {
+            // 忽略单个 cookie 设置错误
+          }
+        }
+      }
+
+      const { net } = require('electron');
+      const request = net.request({
+        method: 'GET',
+        url: profileUrl,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'en-US,en;q=0.9'
+        }
+      });
+
+      let html = '';
+      request.on('response', (response) => {
+        // 处理重定向
+        if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+          console.log(`[avatar] 重定向 ${response.statusCode}: ${steamId64} -> ${response.headers.location}`);
+          resolve(null);
+          return;
+        }
+        response.on('data', (chunk) => { html += chunk.toString(); });
+        response.on('end', () => {
+          // 匹配 playerAvatar 中的 src 或 srcset（支持多行）
+          const m1 = html.match(/playerAvatar[\s\S]{0,200}?(?:src|srcset)="(https:\/\/avatars\.[^"]+\.(?:jpg|png|gif))"/i);
+          if (m1 && m1[1]) {
+            console.log(`[avatar] HTML 提取头像成功: ${steamId64} -> ${m1[1]}`);
+            resolve(m1[1]);
+            return;
+          }
+          // 备用: data-miniprofile
+          const m2 = html.match(/data-miniprofile[\s\S]{0,200}?(?:src|srcset)="(https:\/\/avatars\.[^"]+\.(?:jpg|png|gif))"/i);
+          if (m2 && m2[1]) {
+            console.log(`[avatar] data-miniprofile 提取: ${steamId64} -> ${m2[1]}`);
+            resolve(m2[1]);
+            return;
+          }
+          // 兜底：直接匹配页面中的 _full 头像
+          const m3 = html.match(/https:\/\/avatars\.[^"]+_full\.(?:jpg|png|gif)/i);
+          if (m3 && m3[0]) {
+            console.log(`[avatar] HTML 兜底匹配头像: ${steamId64} -> ${m3[0]}`);
+            resolve(m3[0]);
+            return;
+          }
+          console.log(`[avatar] HTML 也未找到头像: ${steamId64}, 页面长度: ${html.length}`);
+          resolve(null);
+        });
+        response.on('error', (e) => {
+          console.log(`[avatar] HTML 响应异常: ${steamId64} - ${e.message}`);
+          resolve(null);
+        });
+      });
+
+      request.on('error', (e) => {
+        console.log(`[avatar] HTML 请求异常: ${steamId64} - ${e.message}`);
+        resolve(null);
+      });
+      request.end();
+    } catch (e) {
+      console.log(`[avatar] HTML 请求异常: ${e.message}`);
+      resolve(null);
+    }
   });
 }
 
@@ -3290,6 +3514,9 @@ function generateConfirmationKey(identitySecret, time, tag) {
 
 // ============ App 生命周期 ============
 app.whenReady().then(() => {
+  // 先修复已有 maFile 中 steamLoginSecure 的错误 SteamID 前缀
+  migrateFixSteamLoginSecureCookies();
+
   // 设置 Dock 图标
   const iconPath = path.join(__dirname, 'icon.png');
   if (fs.existsSync(iconPath)) {

@@ -18,7 +18,7 @@
   },
   "build": {
     "appId": "com.steam.desktop-authenticator",
-    "productName": "Steam桌面令牌",
+    "productName": "steam-desktop-authenticator",
     "mac": {
       "category": "public.app-category.utilities",
       "icon": "icon.icns",

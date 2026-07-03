@@ -343,15 +343,15 @@ function updateAuthCard() {
   // 加载 Steam 头像
   const initial = (name[0] || '?').toUpperCase();
   if (sid) {
-    loadAvatarForCard(sid, initial);
+    loadAvatarForCard(sid, acc.web_cookies || '', initial);
   } else {
     setAvatarFallback(initial);
   }
 }
 
-async function loadAvatarForCard(steamId, fallbackInitial) {
+async function loadAvatarForCard(steamId, webCookies, fallbackInitial) {
   try {
-    const result = await window.electronAPI.getSteamAvatar(steamId);
+    const result = await window.electronAPI.getSteamAvatar(steamId, webCookies);
     if (result && result.success && result.url) {
       const img = new Image();
       img.onload = () => {
@@ -1026,15 +1026,14 @@ function setupEvents() {
             }
             break;
           }
-          case 'copy-name': {
+          case 'copy-name-steamid': {
             const name = acc.account_name || getSteamId(acc) || '未知';
-            await window.electronAPI.copyToClipboard(name);
-            showToast(`已复制: ${name}`, 'success');
-            break;
-          }
-          case 'copy-steamid': {
             const sid = getSteamId(acc);
-            if (sid) { await window.electronAPI.copyToClipboard(sid); showToast(`已复制 SteamID: ${sid}`, 'success'); }
+            if (sid) {
+              const text = `${name}_${sid}`;
+              await window.electronAPI.copyToClipboard(text);
+              showToast(`已复制: ${text}`, 'success');
+            }
             break;
           }
           case 'export-mafile': {

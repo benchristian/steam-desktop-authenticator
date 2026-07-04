@@ -777,7 +777,7 @@ function openReloginForAction(accountIndex, action) { openReloginModal(accountIn
 function openReloginModal(accountIndex, pendingAction) {
   const acc = accounts[accountIndex];
   if (!acc) return;
-  const steamId = getSteamId(acc);
+  const steamId = String(getSteamId(acc));
   const accountName = acc.account_name || steamId || '未知';
   window.electronAPI.openReloginWindow({
     steamId, accountName, accountIndex,

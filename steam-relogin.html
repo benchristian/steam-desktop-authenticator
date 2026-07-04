@@ -599,9 +599,10 @@
   function fillAccountData(data) {
     if (data && data.accountName) {
       state.accountName = data.accountName;
-      state.steamId = data.steamId || '';
+      // 强制转为字符串，避免 JS 大整数精度丢失导致显示错误 SteamID
+      state.steamId = data.steamId ? String(data.steamId) : '';
       document.getElementById('targetAccountName').textContent = data.accountName;
-      document.getElementById('targetAccountHint').textContent = (data.steamId || '---') + ' · 将为此账号重新获取令牌';
+      document.getElementById('targetAccountHint').textContent = (state.steamId || '---') + ' · 将为此账号重新获取令牌';
       document.getElementById('reloginAccount').value = data.accountName;
       document.getElementById('accountAvatar').textContent = data.accountName.charAt(0).toUpperCase();
       // 加载真实 Steam 头像

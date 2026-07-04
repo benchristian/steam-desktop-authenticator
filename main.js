@@ -366,23 +366,89 @@ function loadAccounts() {
     if (!fs.existsSync(DATA_FILE)) fs.mkdirSync(DATA_FILE, { recursive: true });
     const files = fs.readdirSync(DATA_FILE).filter(f => f.endsWith('.maFile'));
     const accounts = [];
+    let autoFixedCount = 0;
     for (const file of files) {
-      const rawContent = fs.readFileSync(path.join(DATA_FILE, file), 'utf-8');
+      const filePath = path.join(DATA_FILE, file);
+      const rawContent = fs.readFileSync(filePath, 'utf-8');
       const data = JSON.parse(rawContent);
+
+      // ── 启动时 SteamID 一致性校验 ──
+      // 从 JWT（access_token 或 web_cookies 或 Session.SteamLoginSecure）提取权威 SteamID
+      let authoritativeSteamId = null;
+      if (data.access_token) {
+        authoritativeSteamId = parseSteamIdFromToken(data.access_token);
+      }
+      if (!authoritativeSteamId && data.web_cookies) {
+        authoritativeSteamId = getSteamIdFromWebCookie(data.web_cookies);
+      }
+      if (!authoritativeSteamId && data.Session && data.Session.SteamLoginSecure) {
+        // Session.SteamLoginSecure 格式也是 "steamId||JWT" 或 "steamId%7C%7CJWT"
+        authoritativeSteamId = getSteamIdFromWebCookie('steamLoginSecure=' + data.Session.SteamLoginSecure);
+        if (authoritativeSteamId) {
+          console.log('[loadAccounts] 从 Session.SteamLoginSecure 解析权威 SteamID:', authoritativeSteamId);
+        }
+      }
+      if (!authoritativeSteamId && data.Session && data.Session.SteamLogin) {
+        authoritativeSteamId = getSteamIdFromWebCookie('steamLoginSecure=' + data.Session.SteamLogin);
+      }
+
       // 用正则从原始 JSON 文本中提取顶层 SteamID（避免 JSON.parse 大整数精度丢失）
       const topMatch = rawContent.match(/"SteamID":\s*"(\d+)"/);
       if (topMatch) {
         data.SteamID = topMatch[1]; // 字符串，精确值
       } else if (data.SteamID && typeof data.SteamID === 'number') {
-        // 顶层 SteamID 是数字（可能精度丢失），尝试从正则修复
         const numMatch = rawContent.match(/"SteamID":\s*(\d+)/);
         data.SteamID = numMatch ? numMatch[1] : String(data.SteamID);
       }
+
       // Session.SteamID 也确保为字符串
       if (data.Session && data.Session.SteamID !== undefined) {
         data.Session.SteamID = String(data.Session.SteamID);
       }
+
+      // 如果 JWT 中有权威 SteamID，检查并自动修复不一致
+      if (authoritativeSteamId) {
+        let needsFix = false;
+        if (String(data.SteamID) !== String(authoritativeSteamId)) {
+          console.warn('[loadAccounts] ⚠️ 文件', file, 'SteamID 不一致，自动修复:', data.SteamID, '→', authoritativeSteamId);
+          data.SteamID = authoritativeSteamId;
+          needsFix = true;
+        }
+        if (data.Session && String(data.Session.SteamID) !== String(authoritativeSteamId)) {
+          console.warn('[loadAccounts] ⚠️ 文件', file, 'Session.SteamID 不一致，自动修复:', data.Session.SteamID, '→', authoritativeSteamId);
+          data.Session.SteamID = authoritativeSteamId;
+          needsFix = true;
+        }
+        // web_cookies 中的 steamLoginSecure 前缀也必须一致
+        if (data.web_cookies) {
+          const fixedCookies = fixSteamLoginSecureCookie(data.web_cookies, authoritativeSteamId);
+          if (fixedCookies !== data.web_cookies) {
+            console.warn('[loadAccounts] ⚠️ 文件', file, 'web_cookies steamLoginSecure 前缀不一致，自动修复为:', authoritativeSteamId);
+            data.web_cookies = fixedCookies;
+            needsFix = true;
+          }
+        }
+        // 文件名也可能不一致，修复后重命名
+        const expectedFilename = `${authoritativeSteamId}.maFile`;
+        if (file !== expectedFilename) {
+          console.warn('[loadAccounts] ⚠️ 文件名不一致，自动修复:', file, '→', expectedFilename);
+          needsFix = true;
+        }
+        if (needsFix) {
+          // 写回修复后的数据到新文件名
+          const targetPath = path.join(DATA_FILE, expectedFilename);
+          fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), 'utf-8');
+          if (file !== expectedFilename && fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+          autoFixedCount++;
+        }
+      }
+
       accounts.push(data);
+    }
+    if (autoFixedCount > 0) {
+      console.log('[loadAccounts] ✅ 启动时自动修复了', autoFixedCount, '个账号的 SteamID 不一致');
     }
     return accounts;
   } catch (err) {
@@ -394,6 +460,46 @@ function loadAccounts() {
 function saveAccount(accountData) {
   try {
     if (!fs.existsSync(DATA_FILE)) fs.mkdirSync(DATA_FILE, { recursive: true });
+
+    // ── 核心：从 JWT 中提取权威 SteamID ──
+    // JWT 中的 sub 是 Steam 服务器签发的唯一可信 SteamID
+    // 优先级: access_token > web_cookies > 原有字段
+    let authoritativeSteamId = null;
+
+    // 1. 从 access_token JWT 解析
+    if (accountData.access_token) {
+      authoritativeSteamId = parseSteamIdFromToken(accountData.access_token);
+      if (authoritativeSteamId) {
+        console.log('[saveAccount] 从 access_token JWT 解析权威 SteamID:', authoritativeSteamId);
+      }
+    }
+
+    // 2. 降级：从 web_cookies 的 steamLoginSecure JWT 解析
+    if (!authoritativeSteamId && accountData.web_cookies) {
+      authoritativeSteamId = getSteamIdFromWebCookie(accountData.web_cookies);
+      if (authoritativeSteamId) {
+        console.log('[saveAccount] 从 web_cookies JWT 解析权威 SteamID:', authoritativeSteamId);
+      }
+    }
+
+    // 3. 如果从 JWT 获取到了权威 SteamID，统一所有字段
+    const oldSteamId = accountData.SteamID || accountData.steamid || (accountData.Session && accountData.Session.SteamID);
+    if (authoritativeSteamId && String(oldSteamId) !== String(authoritativeSteamId)) {
+      console.warn('[saveAccount] ⚠️ SteamID 不一致！旧值:', oldSteamId, '→ 权威值(JWT):', authoritativeSteamId, '已自动修复');
+      accountData.SteamID = authoritativeSteamId;
+      if (accountData.Session) {
+        accountData.Session.SteamID = authoritativeSteamId;
+      }
+      // 如果旧文件存在，先删除（避免残留错误文件）
+      if (oldSteamId) {
+        const oldPath = path.join(DATA_FILE, `${oldSteamId}.maFile`);
+        if (fs.existsSync(oldPath)) {
+          fs.unlinkSync(oldPath);
+          console.log('[saveAccount] 已删除旧文件:', `${oldSteamId}.maFile`);
+        }
+      }
+    }
+
     // 确保顶层和 Session 中的 SteamID 都是字符串（防止 JSON 序列化时精度丢失）
     if (accountData.SteamID && typeof accountData.SteamID === 'number') {
       accountData.SteamID = String(accountData.SteamID);
@@ -404,9 +510,12 @@ function saveAccount(accountData) {
     if (!accountData.SteamID && !accountData.steamid && accountData.Session && accountData.Session.SteamID) {
       accountData.SteamID = String(accountData.Session.SteamID);
     }
+
+    // 用修复后的权威 SteamID 生成文件名
     const steamId = accountData.SteamID || accountData.steamid || (accountData.Session && accountData.Session.SteamID);
     const filename = `${steamId || accountData.account_name || 'unknown'}.maFile`;
     fs.writeFileSync(path.join(DATA_FILE, filename), JSON.stringify(accountData, null, 2), 'utf-8');
+    console.log('[saveAccount] 已保存:', filename);
     return true;
   } catch (err) {
     console.error('保存账号失败:', err);
@@ -438,31 +547,108 @@ function updateAccountAccessToken(steamId, accessToken, webCookies) {
       console.error('[updateAccountAccessToken] 参数无效: steamId=', steamId, 'accessToken=', accessToken ? '***' : 'null');
       return false;
     }
+    const authoritativeSteamId = parseSteamIdFromToken(accessToken);
     const files = fs.readdirSync(DATA_FILE);
+    let matchedFile = null;
+    let matchedData = null;
+    let matchedPath = null;
+
+    // 辅助：获取文件中的 SteamID
+    const getFileSteamId = (data) => data.SteamID || data.steamid || (data.Session && data.Session.SteamID);
+
+    // 1. 先尝试用传入的 steamId 精确匹配
     for (const file of files) {
       if (!file.endsWith('.maFile')) continue;
       const filePath = path.join(DATA_FILE, file);
       const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-      // maFile 中 SteamID 可能在顶层 data.SteamID 或嵌套在 data.Session.SteamID 中
-      const dataSteamId = data.SteamID || data.steamid || (data.Session && data.Session.SteamID);
-      if (String(dataSteamId) === String(steamId)) {
-        data.access_token = accessToken;
-        if (webCookies) data.web_cookies = fixSteamLoginSecureCookie(webCookies, steamId);
-        // 如果文件名不是 SteamID 格式，重命名为 SteamID.maFile
-        const expectedFilename = `${steamId}.maFile`;
-        const targetPath = path.join(DATA_FILE, expectedFilename);
-        if (file !== expectedFilename && !fs.existsSync(targetPath)) {
-          fs.renameSync(filePath, targetPath);
-          console.log('[updateAccountAccessToken] 文件已重命名:', file, '->', expectedFilename);
-        } else {
-          fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-        }
-        console.log('[updateAccountAccessToken] 已更新', file, '的 access_token' + (webCookies ? ' + web_cookies' : ''));
-        return true;
+      if (String(getFileSteamId(data)) === String(steamId)) {
+        matchedFile = file;
+        matchedData = data;
+        matchedPath = filePath;
+        break;
       }
     }
-    console.error('[updateAccountAccessToken] 未找到匹配的 maFile, steamId=', steamId);
-    return false;
+
+    // 2. 如果失败，尝试用 JWT 中的权威 SteamID 匹配（处理本地精度丢失/文件损坏的情况）
+    if (!matchedFile && authoritativeSteamId) {
+      for (const file of files) {
+        if (!file.endsWith('.maFile')) continue;
+        const filePath = path.join(DATA_FILE, file);
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        const fileSteamId = getFileSteamId(data);
+        // 文件中的 SteamID 与权威值一致，或文件名为旧值但数据权威值一致
+        if (String(fileSteamId) === String(authoritativeSteamId)) {
+          matchedFile = file;
+          matchedData = data;
+          matchedPath = filePath;
+          console.log('[updateAccountAccessToken] 用 JWT 权威 SteamID 匹配到文件:', file);
+          break;
+        }
+        // 文件名是旧错误值（如 76561199268458480.maFile），但内部已有权威 SteamID 字段
+        const fileNameSid = file.replace('.maFile', '');
+        if (String(fileNameSid) === String(steamId) && String(fileSteamId) === String(authoritativeSteamId)) {
+          matchedFile = file;
+          matchedData = data;
+          matchedPath = filePath;
+          console.log('[updateAccountAccessToken] 用文件名匹配到文件:', file);
+          break;
+        }
+      }
+    }
+
+    if (!matchedFile) {
+      console.error('[updateAccountAccessToken] 未找到匹配的 maFile, steamId=', steamId, 'authoritative=', authoritativeSteamId);
+      return false;
+    }
+
+    const correctSteamId = authoritativeSteamId || String(steamId);
+    matchedData.access_token = accessToken;
+    if (webCookies) {
+      matchedData.web_cookies = fixSteamLoginSecureCookie(webCookies, correctSteamId);
+    }
+
+    // 统一 SteamID 字段为权威值
+    if (String(matchedData.SteamID) !== String(correctSteamId)) {
+      console.warn('[updateAccountAccessToken] ⚠️ 修正 SteamID:', matchedData.SteamID, '→', correctSteamId);
+      matchedData.SteamID = correctSteamId;
+    }
+    if (matchedData.Session && String(matchedData.Session.SteamID) !== String(correctSteamId)) {
+      console.warn('[updateAccountAccessToken] ⚠️ 修正 Session.SteamID:', matchedData.Session.SteamID, '→', correctSteamId);
+      matchedData.Session.SteamID = correctSteamId;
+    }
+
+    // 同步修正 Session.SteamLogin / SteamLoginSecure 的 SteamID 前缀
+    if (matchedData.Session) {
+      for (const key of ['SteamLogin', 'SteamLoginSecure']) {
+        const val = matchedData.Session[key];
+        if (typeof val === 'string') {
+          const sep = val.includes('%7C%7C') ? val.indexOf('%7C%7C') : val.indexOf('||');
+          if (sep !== -1) {
+            const prefix = val.substring(0, sep);
+            if (String(prefix) !== String(correctSteamId)) {
+              console.warn('[updateAccountAccessToken] ⚠️ 修正 Session.' + key + ' 前缀:', prefix, '→', correctSteamId);
+              matchedData.Session[key] = correctSteamId + val.substring(sep);
+            }
+          }
+        }
+      }
+    }
+
+    // 保存到正确的文件名
+    const expectedFilename = `${correctSteamId}.maFile`;
+    const targetPath = path.join(DATA_FILE, expectedFilename);
+    if (matchedFile !== expectedFilename) {
+      if (fs.existsSync(targetPath)) {
+        fs.unlinkSync(targetPath);
+      }
+      fs.writeFileSync(targetPath, JSON.stringify(matchedData, null, 2), 'utf-8');
+      fs.unlinkSync(matchedPath);
+      console.log('[updateAccountAccessToken] 文件已重命名并修复:', matchedFile, '->', expectedFilename);
+    } else {
+      fs.writeFileSync(matchedPath, JSON.stringify(matchedData, null, 2), 'utf-8');
+      console.log('[updateAccountAccessToken] 已更新', matchedFile, '的 access_token' + (webCookies ? ' + web_cookies' : ''));
+    }
+    return true;
   } catch (err) {
     console.error('[updateAccountAccessToken] 失败:', err.message);
     return false;
@@ -1446,6 +1632,10 @@ function setupIPC() {
   let pendingReloginData = null;
 
   ipcMain.handle('open-relogin-window', (event, data, theme) => {
+    // 强制 steamId 为字符串，避免 JS 大整数精度丢失导致显示/保存错误
+    if (data && data.steamId) {
+      data.steamId = String(data.steamId);
+    }
     pendingReloginData = data;
     createReloginWindow(data, theme);
     return { success: true };
@@ -1496,13 +1686,21 @@ function setupIPC() {
             const webCookies = Array.isArray(webCookiesRaw) ? webCookiesRaw.join('; ') : (typeof webCookiesRaw === 'string' ? webCookiesRaw : '');
             console.log('[relogin-submit] 获取到 accessToken:', token ? token.substring(0, 20) + '...' : 'null', ', cookies 数量:', Array.isArray(webCookiesRaw) ? webCookiesRaw.length : (webCookies ? 'non-empty' : 'empty'));
 
-            const updated = updateAccountAccessToken(steamId, token, webCookies);
+            // 从 JWT 中获取权威 SteamID（session.steamID 有精度丢失/错位 bug）
+            const correctSteamId = parseSteamIdFromToken(token) || String(steamId);
+            if (String(steamId) !== correctSteamId) {
+              console.warn('[relogin-submit] ⚠️ steamId 不一致，以 JWT sub 为准:', steamId, '→', correctSteamId);
+            }
+            // 修正 web_cookies 中可能因精度丢失产生的错误前缀
+            const fixedWebCookies = fixSteamLoginSecureCookie(webCookies, correctSteamId);
+
+            const updated = updateAccountAccessToken(correctSteamId, token, fixedWebCookies);
             if (!updated) {
               resolve({ success: false, error: '登录成功但更新账号数据失败' });
               return;
             }
             // 只返回可序列化的简单值，避免 IPC 序列化失败
-            resolve({ success: true, steamId });
+            resolve({ success: true, steamId: String(correctSteamId) });
           } catch (e) {
             console.error('[relogin-submit] 获取 token 失败:', e.message);
             resolve({ success: false, error: '获取令牌失败: ' + e.message });
@@ -1973,7 +2171,15 @@ function setupIPC() {
             const webCookies = await session.getWebCookies();
             const webCookiesStr = webCookies.join('; ');
             delete loginSessions[sessionId];
-            const updated = updateAccountAccessToken(steamId, session.accessToken, webCookiesStr);
+
+            // 从 JWT 获取权威 SteamID，修正可能因精度丢失产生的错误
+            const correctSteamId = parseSteamIdFromToken(session.accessToken) || String(steamId);
+            if (String(steamId) !== correctSteamId) {
+              console.warn('[relogin-for-access-token] ⚠️ steamId 不一致，以 JWT sub 为准:', steamId, '→', correctSteamId);
+            }
+            const fixedWebCookies = fixSteamLoginSecureCookie(webCookiesStr, correctSteamId);
+
+            const updated = updateAccountAccessToken(correctSteamId, session.accessToken, fixedWebCookies);
             resolve({
               success: true,
               needGuard: false,
@@ -2922,9 +3128,9 @@ function setupIPC() {
 
         await new Promise(r => setTimeout(r, 500));
 
-        // 先加载 Steam 任意页面建立 Cookie 上下文
-        const profileUrl = `https://steamcommunity.com/profiles/${steamId}`;
-        console.log('[edit-profile-name] 加载 profile 页面建立 Cookie 上下文:', profileUrl);
+        // 先加载 Steam edit 页面建立 Cookie 上下文
+        const profileUrl = `https://steamcommunity.com/profiles/${steamId}/edit`;
+        console.log('[edit-profile-name] 加载 edit 页面建立 Cookie 上下文:', profileUrl);
 
         bw.webContents.on('did-finish-load', async () => {
           const currentUrl = bw.webContents.getURL();
@@ -2934,6 +3140,38 @@ function setupIPC() {
           if (currentUrl.includes('/login/') || currentUrl.includes('login.steampowered.com')) {
             return done({ success: false, error: 'Steam 登录态已过期，web_cookies 无效，请先重新登录' });
           }
+
+          // 页面加载后重新读取最新的 sessionid（Steam 可能会在加载时刷新）
+          try {
+            const freshCookies = await bw.webContents.session.cookies.get({ domain: 'steamcommunity.com', name: 'sessionid' });
+            if (freshCookies && freshCookies.length > 0 && freshCookies[0].value) {
+              sessionId = freshCookies[0].value;
+              console.log('[edit-profile-name] 使用页面加载后的 sessionid:', sessionId.substring(0, 10) + '...');
+            }
+          } catch (_) {}
+
+          // 也尝试从页面 JS 全局变量 g_sessionID 获取（页面加载后可能和 cookie 不同）
+          try {
+            const pageSessionId = await bw.webContents.executeJavaScript(`
+              (function() {
+                if (typeof g_sessionID !== 'undefined' && g_sessionID) return g_sessionID;
+                // 尝试从页面中的脚本或 input 提取
+                const m = document.documentElement.innerHTML.match(/g_sessionID\\s*=\\s*["']([a-f0-9]+)["']/i);
+                if (m) return m[1];
+                const input = document.querySelector('input[name="sessionID"], input[name="sessionid"]');
+                if (input) return input.value;
+                return '';
+              })()
+            `);
+            if (pageSessionId && pageSessionId !== sessionId) {
+              console.log('[edit-profile-name] 从页面获取到新的 sessionid:', pageSessionId.substring(0, 10) + '...');
+              sessionId = pageSessionId;
+            }
+          } catch (e) {
+            console.log('[edit-profile-name] 从页面获取 sessionid 失败:', e.message);
+          }
+
+          if (!sessionId) return done({ success: false, error: '无法获取 sessionid' });
 
           // 页面加载成功后，直接用 fetch 发 POST 请求（Cookie 由浏览器自动携带）
           try {
@@ -2986,7 +3224,8 @@ function setupIPC() {
                   });
 
                   var text = await resp.text();
-                  console.log('[edit-profile-name-fetch] 响应:', text.substring(0, 500));
+                  console.log('[edit-profile-name-fetch] 响应状态:', resp.status, resp.statusText);
+                  console.log('[edit-profile-name-fetch] 响应:', text.substring(0, 800));
 
                   try {
                     var json = JSON.parse(text);
@@ -2994,15 +3233,17 @@ function setupIPC() {
                       return { success: true, message: '个人资料名称已更新为: ' + ${JSON.stringify(accountName)} };
                     } else if (json.errmsg) {
                       return { success: false, error: json.errmsg };
+                    } else if (json.success === false && json.message) {
+                      return { success: false, error: json.message };
                     } else {
                       return { success: false, error: '未知响应: ' + JSON.stringify(json) };
                     }
                   } catch (e) {
                     // 响应不是 JSON，可能是 HTML（错误页面）
-                    if (text.indexOf('登录') > -1 || text.indexOf('login') > -1) {
+                    if (text.indexOf('登录') > -1 || text.indexOf('login') > -1 || text.indexOf('sign in') > -1) {
                       return { success: false, error: 'Cookie 无效，返回登录页面' };
                     }
-                    if (text.indexOf('success') > -1) {
+                    if (text.indexOf('success') > -1 || text.indexOf('已成功') > -1) {
                       return { success: true, message: '个人资料名称已更新为: ' + ${JSON.stringify(accountName)} };
                     }
                     return { success: false, error: 'Steam 返回非 JSON 响应: ' + text.substring(0, 200) };

@@ -34,6 +34,55 @@ const PROXY_CONFIG = {
   socksProxy: process.env.SOCKS_PROXY || process.env.socks_proxy || ''
 };
 
+// CSV 账号密码文件路径（用于重新登录时自动填充密码）
+const CSV_ACCOUNTS_PATH = '/Users/lucidity/CodeBuddy/20260619185425/steam账号.csv';
+
+// 从 CSV 文件中查询账号密码
+// CSV 格式：第一行为表头（steam账户,steam密码），后续行为数据
+let csvAccountsCache = null;
+let csvCacheTime = 0;
+function loadCsvAccounts() {
+  const now = Date.now();
+  // 缓存 30 秒，避免频繁读取磁盘
+  if (csvAccountsCache && (now - csvCacheTime) < 30000) {
+    return csvAccountsCache;
+  }
+  try {
+    if (!fs.existsSync(CSV_ACCOUNTS_PATH)) {
+      console.log('[csv] CSV 文件不存在:', CSV_ACCOUNTS_PATH);
+      return null;
+    }
+    const content = fs.readFileSync(CSV_ACCOUNTS_PATH, 'utf-8');
+    const lines = content.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return null;
+
+    const map = new Map();
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split(',');
+      if (parts.length >= 2) {
+        const username = parts[0].trim();
+        const password = parts[1].trim();
+        if (username && password) {
+          map.set(username, password);
+        }
+      }
+    }
+    csvAccountsCache = map;
+    csvCacheTime = now;
+    console.log('[csv] 已加载', map.size, '个账号密码');
+    return map;
+  } catch (e) {
+    console.error('[csv] 读取 CSV 失败:', e.message);
+    return null;
+  }
+}
+
+function queryPasswordFromCsv(accountName) {
+  const map = loadCsvAccounts();
+  if (!map) return null;
+  return map.get(accountName) || null;
+}
+
 let mainWindow = null;
 let confirmationWindow = null;
 let confirmationData = null; // 保存当前确认窗口的账号数据
@@ -238,6 +287,13 @@ function createBindWindow(theme) {
 function createReloginWindow(data, theme) {
   if (reloginWindow && !reloginWindow.isDestroyed()) {
     reloginWindow.focus();
+    // 从 CSV 查询密码
+    if (data && data.accountName) {
+      const csvPassword = queryPasswordFromCsv(data.accountName);
+      if (csvPassword) {
+        data.autoPassword = csvPassword;
+      }
+    }
     // 重新发送初始化数据
     reloginWindow.webContents.send('relogin-init', data);
     return;
@@ -284,6 +340,16 @@ function createReloginWindow(data, theme) {
     reloginWindow.show();
     // 同步主题到子窗口（确保一致性）
     reloginWindow.webContents.send('theme-changed', theme || 'system');
+
+    // 从 CSV 查询密码，自动填充到重新登录窗口
+    if (data && data.accountName) {
+      const csvPassword = queryPasswordFromCsv(data.accountName);
+      if (csvPassword) {
+        data.autoPassword = csvPassword;
+        console.log('[relogin] CSV 中找到账号密码:', data.accountName);
+      }
+    }
+
     // 将数据注入为全局变量，渲染进程直接读取
     const dataJson = JSON.stringify(data);
     reloginWindow.webContents.executeJavaScript(`
@@ -1643,7 +1709,19 @@ function setupIPC() {
 
   // 渲染进程主动请求初始化数据（解决 ready-to-show 时序问题）
   ipcMain.handle('request-relogin-data', () => {
-    return pendingReloginData || null;
+    const data = pendingReloginData;
+    if (data && data.accountName) {
+      const csvPassword = queryPasswordFromCsv(data.accountName);
+      if (csvPassword) {
+        data.autoPassword = csvPassword;
+      }
+    }
+    return data || null;
+  });
+
+  // 从 CSV 查询密码（备用 API）
+  ipcMain.handle('query-password-from-csv', (event, accountName) => {
+    return queryPasswordFromCsv(accountName);
   });
 
   ipcMain.on('close-relogin-window', () => {

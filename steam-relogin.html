@@ -610,6 +610,13 @@
         loadAccountAvatar(state.steamId);
       }
     }
+    // 从 CSV 自动填充密码
+    if (data && data.autoPassword) {
+      document.getElementById('reloginPassword').value = data.autoPassword;
+      // 密码已自动填充，聚焦到密码框方便确认
+      document.getElementById('reloginPassword').focus();
+      document.getElementById('pwHint').textContent = '密码已从 CSV 文件自动填充，确认无误后直接点击登录即可。';
+    }
     if (data && data.pendingAction) {
       state.pendingAction = data.pendingAction;
     }

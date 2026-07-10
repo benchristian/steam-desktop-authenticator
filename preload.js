@@ -92,6 +92,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeReloginWindow: () => ipcRenderer.send('close-relogin-window'),
   onReloginDone: (cb) => ipcRenderer.on('relogin-done', (event, data) => cb(data)),
   reloginSubmit: (data) => ipcRenderer.invoke('relogin-submit', data),
+  // 从 CSV 文件查询账号密码（备用）
+  queryPasswordFromCsv: (accountName) => ipcRenderer.invoke('query-password-from-csv', accountName),
 
   // 主题同步
   notifyThemeChange: (theme) => ipcRenderer.send('theme-changed', theme),

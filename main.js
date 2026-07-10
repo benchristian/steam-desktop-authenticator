@@ -63,7 +63,7 @@ function loadCsvAccounts() {
         const username = parts[0].trim();
         const password = parts[1].trim();
         if (username && password) {
-          map.set(username, password);
+          map.set(username.toLowerCase(), password);
         }
       }
     }
@@ -79,8 +79,8 @@ function loadCsvAccounts() {
 
 function queryPasswordFromCsv(accountName) {
   const map = loadCsvAccounts();
-  if (!map) return null;
-  return map.get(accountName) || null;
+  if (!map || !accountName) return null;
+  return map.get(accountName.toLowerCase().trim()) || null;
 }
 
 let mainWindow = null;

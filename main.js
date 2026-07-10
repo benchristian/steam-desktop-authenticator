@@ -285,15 +285,24 @@ function createBindWindow(theme) {
 
 // ============ 重新登录独立窗口 ============
 function createReloginWindow(data, theme) {
+  // 从 CSV 查询密码（新窗口和已有窗口都需要）
+  if (data && data.accountName) {
+    const csvPassword = queryPasswordFromCsv(data.accountName);
+    if (csvPassword) {
+      data.autoPassword = csvPassword;
+      console.log('[relogin] CSV 中找到账号密码:', data.accountName);
+    } else {
+      console.log('[relogin] CSV 中未找到账号密码:', data.accountName);
+    }
+  } else {
+    console.log('[relogin] data 中没有 accountName，跳过 CSV 查询');
+  }
+
   if (reloginWindow && !reloginWindow.isDestroyed()) {
     reloginWindow.focus();
-    // 从 CSV 查询密码
-    if (data && data.accountName) {
-      const csvPassword = queryPasswordFromCsv(data.accountName);
-      if (csvPassword) {
-        data.autoPassword = csvPassword;
-      }
-    }
+    // 同步更新 pendingReloginData，确保方式4（requestReloginData）也能拿到密码
+    pendingReloginData = data;
+    console.log('[relogin] 复用已有窗口，发送 relogin-init, autoPassword:', data.autoPassword ? '有' : '无');
     // 重新发送初始化数据
     reloginWindow.webContents.send('relogin-init', data);
     return;

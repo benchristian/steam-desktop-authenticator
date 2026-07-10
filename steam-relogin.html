@@ -597,6 +597,7 @@
 
   // 填入账号信息的通用方法
   function fillAccountData(data) {
+    console.log('[relogin-ui] fillAccountData 收到数据:', data ? (data.accountName + ' autoPassword:' + (data.autoPassword ? '有' : '无')) : 'null');
     if (data && data.accountName) {
       state.accountName = data.accountName;
       // 强制转为字符串，避免 JS 大整数精度丢失导致显示错误 SteamID
@@ -612,10 +613,13 @@
     }
     // 从 CSV 自动填充密码
     if (data && data.autoPassword) {
+      console.log('[relogin-ui] 自动填充密码:', data.autoPassword.substring(0, 3) + '***');
       document.getElementById('reloginPassword').value = data.autoPassword;
       // 密码已自动填充，聚焦到密码框方便确认
       document.getElementById('reloginPassword').focus();
       document.getElementById('pwHint').textContent = '密码已从 CSV 文件自动填充，确认无误后直接点击登录即可。';
+    } else if (data) {
+      console.log('[relogin-ui] 没有 autoPassword，密码框保持原样');
     }
     if (data && data.pendingAction) {
       state.pendingAction = data.pendingAction;

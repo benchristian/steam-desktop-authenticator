@@ -1694,7 +1694,8 @@ function setupIPC() {
             // 修正 web_cookies 中可能因精度丢失产生的错误前缀
             const fixedWebCookies = fixSteamLoginSecureCookie(webCookies, correctSteamId);
 
-            const updated = updateAccountAccessToken(correctSteamId, token, fixedWebCookies);
+            // 用旧的 steamId 匹配文件，内部会用 correctSteamId 修正并重命名
+            const updated = updateAccountAccessToken(steamId, token, fixedWebCookies);
             if (!updated) {
               resolve({ success: false, error: '登录成功但更新账号数据失败' });
               return;
@@ -2179,7 +2180,8 @@ function setupIPC() {
             }
             const fixedWebCookies = fixSteamLoginSecureCookie(webCookiesStr, correctSteamId);
 
-            const updated = updateAccountAccessToken(correctSteamId, session.accessToken, fixedWebCookies);
+            // 用旧的 steamId 匹配文件，内部会用 correctSteamId 修正并重命名
+            const updated = updateAccountAccessToken(steamId, session.accessToken, fixedWebCookies);
             resolve({
               success: true,
               needGuard: false,

@@ -2649,7 +2649,10 @@ function setupIPC() {
 
         // 设置 Steam 登录 cookies
         const cookieStrings = webCookies.split(';').map(c => c.trim()).filter(Boolean);
-        console.log('[set-inventory-public] 设置', cookieStrings.length, '个 cookies');
+        console.log('[set-inventory-public] 设置', cookieStrings.length, '个 cookies, 内容预览:', cookieStrings.map(c => {
+          const eq = c.indexOf('=');
+          return eq > 0 ? c.substring(0, eq) : c;
+        }).join(', '));
 
         // 设置过期时间为 30 天后
         const expiry = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
@@ -2663,6 +2666,7 @@ function setupIPC() {
           const value = cookieStr.substring(eqIdx + 1).trim();
           if (!name || !value) continue;
           if (name === 'sessionid') sessionId = value;
+          console.log('[set-inventory-public] cookie:', name, '=', value.substring(0, 30) + (value.length > 30 ? '...' : ''));
 
           const domains = ['.steamcommunity.com', 'steamcommunity.com', '.store.steampowered.com'];
           for (const domain of domains) {
@@ -2679,7 +2683,7 @@ function setupIPC() {
                 expirationDate: expiry
               });
             } catch (e) {
-              // 忽略单个 cookie 设置错误
+              console.error('[set-inventory-public] 设置 cookie 失败:', name, e.message);
             }
           }
         }
@@ -2719,12 +2723,19 @@ function setupIPC() {
           }
 
           try {
-            // 在页面中执行 JavaScript：获取隐私设置 → 修改库存为公开 → 提交
-            // sessionid 从主进程传入（因为被设为 httpOnly，document.cookie 读不到）
+            // 先验证 Cookie 是否有效
+            const cookieCheck = await bw.webContents.executeJavaScript(`
+              (function() {
+                return 'document.cookie length: ' + document.cookie.length + ', cookie names: ' + document.cookie.split(';').map(function(c) { return c.trim().split('=')[0]; }).join(', ');
+              })()
+            `);
+            console.log('[set-inventory-public] 页面 Cookie 状态:', cookieCheck);
+
+            // 使用 fetch 代替 XMLHttpRequest（与 edit-profile-name 保持一致）
             const result = await bw.webContents.executeJavaScript(`
               (function() {
                 var SESSIONID = ${JSON.stringify(sessionId)};
-                return new Promise((resolve, reject) => {
+                return new Promise((resolve) => {
                   try {
                     // 从页面中获取 data-profile-edit 属性
                     const profileEdit = document.querySelector('[data-profile-edit]');
@@ -2752,50 +2763,53 @@ function setupIPC() {
                     // 设置库存为公开（3）
                     privacy.PrivacyInventory = 3;
 
-                    const sessionid = SESSIONID;
-
-                    if (!sessionid) {
+                    if (!SESSIONID) {
                       return resolve({ success: false, error: '无法获取 sessionid，cookie 中未包含 sessionid' });
                     }
 
-                    // 使用 XMLHttpRequest 提交
-                    const xhr = new XMLHttpRequest();
-                    xhr.open('POST', 'https://steamcommunity.com/profiles/${steamId}/ajaxsetprivacy/', true);
-                    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-                    xhr.withCredentials = true;
-                    xhr.timeout = 10000;
+                    // 使用 fetch 提交
+                    var formData = new URLSearchParams();
+                    formData.append('sessionid', SESSIONID);
+                    formData.append('Privacy', JSON.stringify(privacy));
+                    formData.append('eCommentPermission', configData.Privacy?.eCommentPermission || 0);
 
-                    xhr.onload = function() {
-                      try {
-                        if (xhr.status === 0) {
-                          return resolve({ success: false, error: '请求被阻止（状态码 0），可能是跨域或代理问题' });
+                    fetch('https://steamcommunity.com/profiles/${steamId}/ajaxsetprivacy/', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                        'Origin': 'https://steamcommunity.com',
+                        'Referer': 'https://steamcommunity.com/profiles/${steamId}/edit/settings',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json, text/javascript, */*; q=0.01'
+                      },
+                      body: formData.toString(),
+                      credentials: 'include'
+                    }).then(function(resp) {
+                      console.log('[set-inventory-public-fetch] 响应状态:', resp.status, resp.statusText);
+                      return resp.text().then(function(text) {
+                        console.log('[set-inventory-public-fetch] 响应内容:', text.substring(0, 500));
+                        try {
+                          var json = JSON.parse(text);
+                          if (json.success === 1) {
+                            resolve({ success: true, message: '库存隐私已设置为公开' });
+                          } else if (json.errmsg) {
+                            resolve({ success: false, error: json.errmsg });
+                          } else if (json.message) {
+                            resolve({ success: false, error: json.message });
+                          } else {
+                            resolve({ success: false, error: '未知响应: ' + JSON.stringify(json) });
+                          }
+                        } catch (e) {
+                          if (text.indexOf('登录') > -1 || text.indexOf('login') > -1 || text.indexOf('sign in') > -1) {
+                            resolve({ success: false, error: 'Cookie 无效，返回登录页面' });
+                          } else {
+                            resolve({ success: false, error: '响应非JSON: ' + text.substring(0, 200) });
+                          }
                         }
-                        if (xhr.status !== 200) {
-                          return resolve({ success: false, error: 'HTTP ' + xhr.status + ': ' + String(xhr.responseText || '').substring(0, 200) });
-                        }
-                        const respText = xhr.responseText || '';
-                        const respData = JSON.parse(respText);
-                        resolve({
-                          success: respData.success === 1,
-                          response: respData
-                        });
-                      } catch (e) {
-                        resolve({ success: false, error: '解析响应失败: ' + String(xhr.responseText || '').substring(0, 200) + ' | error: ' + e.message });
-                      }
-                    };
-
-                    xhr.onerror = function() {
-                      resolve({ success: false, error: '网络请求失败（可能是代理或连接问题）' });
-                    };
-
-                    xhr.ontimeout = function() {
-                      resolve({ success: false, error: '请求超时（10秒）' });
-                    };
-
-                    const body = 'sessionid=' + encodeURIComponent(sessionid) +
-                      '&Privacy=' + encodeURIComponent(JSON.stringify(privacy)) +
-                      '&eCommentPermission=' + (configData.Privacy?.eCommentPermission || 0);
-                    xhr.send(body);
+                      });
+                    }).catch(function(err) {
+                      resolve({ success: false, error: 'fetch 请求失败: ' + err.message });
+                    });
                   } catch (e) {
                     resolve({ success: false, error: e.message });
                   }

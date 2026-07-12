@@ -7,6 +7,11 @@ dist/
 # Secrets / credentials
 maFiles/
 *.maFile
+*.csv
+*账号*.csv
+*.env
+*.key
+*.pem
 
 # OS
 .DS_Store

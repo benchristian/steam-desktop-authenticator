@@ -1,7 +1,7 @@
 {
   "name": "steam-desktop-authenticator",
   "version": "2.0.0",
-  "description": "Steam Desktop Authenticator for macOS — 通过 Steam 登录直接绑定验证器，无需手动提取密钥",
+  "description": "Steam Desktop Authenticator for macOS — 通过 Steam 登录直接绑定验证器，支持多账号管理、右键菜单快捷操作（设置库存公开、确认交易、修改资料等）、二维码扫码登录和 CSV 密码自动填充",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

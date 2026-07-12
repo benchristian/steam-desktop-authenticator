@@ -4,12 +4,11 @@
 
 ## 功能
 
-- Steam Guard TOTP 验证码，30 秒自动刷新
-- 多账号管理，本地存储
-- 通过 Steam 账号密码 + 手机令牌直接绑定验证器（自动获取 shared_secret，无需手动提取）
-- 二维码扫码登录
-- 右键菜单快捷操作：设置库存公开、批量确认交易、修改昵称、随机头像、刷新令牌数据
-- 重新登录时从 CSV 文件自动填充账号密码
+- Steam Guard TOTP 验证码，30 秒自动刷新，一键复制
+- 多账号管理，账号数据以本地 `.maFile` 文件存储（位于用户数据目录，不上传）
+- 通过 Steam 账号密码 + 手机令牌直接绑定验证器（自动获取 shared_secret，无需手动提取密钥）
+- 右键菜单快捷操作：设置库存公开、批量确认交易、修改昵称、随机更换头像、刷新令牌数据
+- 重新登录时从 CSV 文件自动匹配并填入账号密码
 
 ## 安装与运行
 
@@ -19,14 +18,20 @@ npm install
 npm start
 ```
 
+> 若 Electron 二进制下载失败，可设置网络代理后重试 `npm install electron --no-save`。
+
 打包为 macOS 应用：
 
 ```bash
-npm run build:dmg   # 生成 DMG
-npm run build:zip   # 生成 ZIP
+npm run build:dmg   # 生成 DMG 安装包
+npm run build:zip   # 生成 ZIP 包
 ```
 
-打包产物在 `dist/` 目录。
+打包产物输出在 `dist/` 目录。
+
+## 随机头像
+
+右键菜单「随机头像」会从程序目录下的 `custom-avatars/` 文件夹随机选取一张图片，并上传为 Steam 个人资料头像。使用前请在该文件夹放入 `.png/.jpg/.jpeg/.gif/.webp/.bmp` 格式的图片。
 
 ## CSV 密码自动填充
 
@@ -37,7 +42,7 @@ steam账户,steam密码
 your_account,password123
 ```
 
-重新登录时，应用会根据账号名自动匹配并填入对应密码，无需手动输入。
+重新登录时，应用会根据账号名（大小写不敏感）匹配并自动填入对应密码，无需手动输入。
 
 ## 快捷键
 
@@ -51,6 +56,7 @@ your_account,password123
 
 - Electron
 - steam-session / steam-totp / steamcommunity
+- jsqr、chrome-remote-interface、ws（辅助依赖）
 
 ## 许可证
 

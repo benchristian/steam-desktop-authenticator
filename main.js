@@ -2119,7 +2119,19 @@ function setupIPC() {
           if (process.platform === 'darwin') {
             const errMsg = capErr.message || '';
             if (errMsg.includes('screen') || errMsg.includes('capture') || errMsg.includes('permission')) {
-              return { success: false, error: '需要屏幕录制权限。请前往 系统设置 → 隐私与安全性 → 屏幕录制，找到 Electron 并勾选启用。\n\n如果列表中没有 Electron，请点击 + 手动添加：\n/Users/lucidity/CodeBuddy/20260619185428/steam-authenticator/node_modules/electron/dist/Electron.app' };
+              const electronPath = process.execPath;
+              return {
+                success: false,
+                error:
+                  '需要屏幕录制权限。请按以下步骤操作：\n\n' +
+                  '1. 打开 系统设置 → 隐私与安全性 → 屏幕录制\n' +
+                  '2. 列表里“屏幕录制”开关已打开，但需把启动本程序的软件加进右侧应用列表：\n' +
+                  '   - 若用终端运行 npm start：请勾选“终端”(Terminal) 或 iTerm\n' +
+                  '   - 若用 VS Code / CodeBuddy 等编辑器内终端运行：请勾选对应的编辑器\n' +
+                  '   - 若直接打开打包好的 .app：请点 + 手动添加该 .app\n' +
+                  '3. 添加后必须完全退出并重启该应用（终端/编辑器），权限才会生效\n\n' +
+                  '当前 Electron 路径：' + electronPath
+              };
             }
           }
           throw capErr;

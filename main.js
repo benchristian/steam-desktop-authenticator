@@ -27,10 +27,9 @@ console.error = (...a) => { const m = a.map(x => typeof x === 'object' ? JSON.st
 console.log('[main] 日志重定向已启用');
 
 // 代理配置（用于 steam-session 连接 Steam 服务器）
-// 可通过环境变量 SOCKS_PROXY 或 HTTP_PROXY 覆盖
-// 默认使用系统代理 127.0.0.1:10900（macOS 通常由 Clash/Surge 等代理软件设置）
+// 优先使用环境变量指定的代理；未设置任何代理时默认直连（不再硬编码失效端口，避免 SSL WRONG_VERSION_NUMBER）
 const PROXY_CONFIG = {
-  httpProxy: process.env.HTTP_PROXY || process.env.http_proxy || process.env.https_proxy || 'http://127.0.0.1:10900',
+  httpProxy: process.env.HTTP_PROXY || process.env.http_proxy || process.env.HTTPS_PROXY || process.env.https_proxy || process.env.ALL_PROXY || process.env.all_proxy || '',
   socksProxy: process.env.SOCKS_PROXY || process.env.socks_proxy || ''
 };
 

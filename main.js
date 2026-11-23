@@ -33,6 +33,13 @@ const PROXY_CONFIG = {
   socksProxy: process.env.SOCKS_PROXY || process.env.socks_proxy || ''
 };
 
+// Steam 登录二维码 URL 格式校验（与 steam-session LoginApprover.decodeQrUrl 保持一致）
+// 有效格式：https://s.team/q/<version>/<clientId>，可带 query
+// 用于过滤 jsQR 把表格/图标等误判成的“伪二维码”（data 为空或非 Steam URL）
+function isValidSteamQrUrl(data) {
+  return typeof data === 'string' && /^https?:\/\/s\.team\/q\/\d+\/\d+(\?|$)/.test(data.trim());
+}
+
 // CSV 账号密码文件路径（用于重新登录时自动填充密码）
 const CSV_ACCOUNTS_PATH = '/Users/lucidity/CodeBuddy/20260619185425/steam账号.csv';
 
@@ -2170,7 +2177,15 @@ function setupIPC() {
 
           // 先尝试原始分辨率
           console.log(`[capture-screen] running jsQR on "${source.name}" (${imgSize.width}x${imgSize.height})`);
-          let qrResult = jsQR(bitmapRGBA, imgSize.width, imgSize.height);
+          let rawResult = jsQR(bitmapRGBA, imgSize.width, imgSize.height);
+          // 只接受内容符合 Steam 登录二维码格式的结果，过滤误识别的“伪二维码”
+          let qrResult = null;
+          if (rawResult && isValidSteamQrUrl(rawResult.data)) {
+            qrResult = rawResult;
+          } else if (rawResult) {
+            console.log('[capture-screen] 忽略非 Steam 二维码（误识别）:',
+              source.name, 'data:', JSON.stringify(String(rawResult.data || '').substring(0, 60)));
+          }
 
           // 如果失败，尝试缩小到 50% 再识别
           if (!qrResult && (imgSize.width > 2000 || imgSize.height > 2000)) {
@@ -2192,7 +2207,7 @@ function setupIPC() {
               }
             }
             const scaledResult = jsQR(scaled, sw, sh);
-            if (scaledResult) {
+            if (scaledResult && isValidSteamQrUrl(scaledResult.data)) {
               // 把坐标映射回原始分辨率
               qrResult = {
                 data: scaledResult.data,
@@ -2230,10 +2245,13 @@ function setupIPC() {
         }
       }
 
-      // 所有屏幕都没找到二维码，返回错误提示
+      // 所有屏幕都没找到有效的 Steam 登录二维码，返回错误提示
       return {
         success: false,
-        error: `在 ${displays.length} 个屏幕中均未找到 Steam 登录二维码。请确保：\n1. Steam 登录页面的二维码在某个屏幕中完全可见\n2. 二维码未被其他窗口遮挡`
+        error: `在 ${displays.length} 个屏幕中均未找到有效的 Steam 登录二维码。请确认：\n` +
+          '1. 屏幕上正显示 Steam 登录页的扫码登录二维码（浏览器打开 store.steampowered.com/login 或客户端扫码登录）\n' +
+          '2. 二维码完整、清晰、未被其他窗口遮挡\n' +
+          '3. 二维码是 Steam「扫码登录」的码，不是其他二维码或表格/图片'
       };
 
     } catch (err) {
@@ -2402,7 +2420,16 @@ function setupIPC() {
   ipcMain.handle('approve-qr-login', async (event, { accessToken, sharedSecret, qrChallengeUrl }) => {
     try {
       console.log('[approve-qr-login] 开始批准 QR 登录...');
-      console.log('[approve-qr-login] qrChallengeUrl:', qrChallengeUrl.substring(0, 80));
+      console.log('[approve-qr-login] qrChallengeUrl:', qrChallengeUrl ? qrChallengeUrl.substring(0, 80) : '(空)');
+
+      // 前置校验：必须是有效的 Steam 登录二维码 URL，避免底层抛 Invalid QR code URL
+      if (!isValidSteamQrUrl(qrChallengeUrl)) {
+        console.warn('[approve-qr-login] 无效的 QR URL:', JSON.stringify(String(qrChallengeUrl || '').substring(0, 80)));
+        return {
+          success: false,
+          error: '未识别到有效的 Steam 登录二维码。请把 Steam 登录页的扫码二维码完整显示在屏幕上后重试。'
+        };
+      }
 
       // 1. 创建 LoginApprover（需要 MobileApp 平台的 accessToken），传入代理配置
       const approver = new LoginApprover(accessToken, sharedSecret, getSessionOptions());

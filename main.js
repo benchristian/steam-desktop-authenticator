@@ -26,20 +26,71 @@ console.log = (...a) => { const m = a.map(x => typeof x === 'object' ? JSON.stri
 console.error = (...a) => { const m = a.map(x => typeof x === 'object' ? JSON.stringify(x) : String(x)).join(' '); logStream.write('[E] ' + m + '\n'); origError.apply(console, a); };
 console.log('[main] 日志重定向已启用');
 
-// 代理配置
-// 默认直连：系统级代理变量（ALL_PROXY / HTTP_PROXY 等）由代理软件动态注入，端口会频繁变动或失效
-// （实测 10900 -> 10901 -> 10902 不断变化且常不可用）。若默认跟随，一旦端口失效就会把 HTTPS
-// 请求经 CONNECT 隧道发到死端口，触发 SSL WRONG_VERSION_NUMBER（交易确认加载失败、登录失败）。
-// 已验证当前环境可直连 Steam，故默认直连。如确需代理，请用专用变量显式指定，避免被系统变量干扰：
-//   STEAM_HTTP_PROXY=http://127.0.0.1:端口  npm start
-//   STEAM_SOCKS_PROXY=socks5://127.0.0.1:端口  npm start
+// ===== 代理配置 =====
+// 本机通过代理软件（Clash/Surge 类）访问 steamcommunity.com，且代理端口会动态变化
+// （实测 10900 -> 10901 -> 10902）。系统代理的真实端口可用 `scutil --proxy` 动态读取。
+// 若把端口在启动时快照成常量，代理换端口后请求就会发到死端口，触发 WRONG_VERSION_NUMBER / 超时。
+// 因此这里不在启动时固定端口，而是每次发请求时动态解析系统代理（带短缓存跟随漂移）。
+// 注意：steamcommunity.com 无法直连，必须走代理；请勿改成默认直连。
+//
+// 可选的环境变量覆盖（优先级从高到低）：
+//   STEAM_DIRECT=1                        强制直连（仅在能直连的网络下使用）
+//   STEAM_HTTP_PROXY=http://host:port    强制使用该 HTTP 代理
+//   STEAM_SOCKS_PROXY=socks5://host:port 使用 SOCKS 代理（仅 steam-session 支持）
+let _proxyCache = null;
+let _proxyCacheTime = 0;
+const PROXY_CACHE_TTL = 30000; // 缓存 30 秒，端口漂移后自动跟上
+
+function invalidateProxyCache() {
+  _proxyCache = null;
+  _proxyCacheTime = 0;
+}
+
+function resolveSystemProxy() {
+  // macOS：从系统代理设置动态读取当前 HTTP/HTTPS 代理端口
+  if (process.platform === 'darwin') {
+    try {
+      const out = execSync('scutil --proxy', { encoding: 'utf8', timeout: 2000 });
+      const enabled = /HTTPSEnable\s*:\s*1/.test(out) || /HTTPEnable\s*:\s*1/.test(out);
+      const portMatch = out.match(/HTTPSPort\s*:\s*(\d+)/) || out.match(/HTTPPort\s*:\s*(\d+)/);
+      const hostMatch = out.match(/HTTPSProxy\s*:\s*(\S+)/) || out.match(/HTTPProxy\s*:\s*(\S+)/);
+      if (enabled && portMatch) {
+        const host = (hostMatch && hostMatch[1]) || '127.0.0.1';
+        const proxy = `http://${host}:${portMatch[1]}`;
+        if (proxy !== _proxyCache) {
+          console.log('[proxy] 检测到系统代理端口:', proxy);
+        }
+        return proxy;
+      }
+    } catch (e) {
+      console.error('[proxy] 读取系统代理失败:', e.message);
+    }
+  }
+  // 回退到环境变量（可能是启动时的快照，优先级最低）
+  return process.env.ALL_PROXY || process.env.all_proxy ||
+         process.env.HTTPS_PROXY || process.env.https_proxy ||
+         process.env.HTTP_PROXY || process.env.http_proxy || '';
+}
+
+function getHttpProxy() {
+  if (process.env.STEAM_DIRECT === '1') return '';
+  if (process.env.STEAM_HTTP_PROXY) return process.env.STEAM_HTTP_PROXY;
+  if (process.env.STEAM_SOCKS_PROXY) return ''; // 交给 socksProxy 处理
+  const now = Date.now();
+  if (_proxyCache !== null && now - _proxyCacheTime < PROXY_CACHE_TTL) return _proxyCache;
+  _proxyCache = resolveSystemProxy();
+  _proxyCacheTime = now;
+  return _proxyCache;
+}
+
+// 用 getter 保持原有 PROXY_CONFIG.httpProxy 用法不变，但每次读取都是动态解析
 const PROXY_CONFIG = {
-  httpProxy: process.env.STEAM_HTTP_PROXY || '',
-  socksProxy: process.env.STEAM_SOCKS_PROXY || ''
+  get httpProxy() { return getHttpProxy(); },
+  get socksProxy() { return process.env.STEAM_SOCKS_PROXY || ''; }
 };
 console.log('[main] 网络模式:', PROXY_CONFIG.socksProxy
   ? 'SOCKS 代理 ' + PROXY_CONFIG.socksProxy
-  : (PROXY_CONFIG.httpProxy ? 'HTTP 代理 ' + PROXY_CONFIG.httpProxy : '直连'));
+  : (PROXY_CONFIG.httpProxy ? 'HTTP 代理(动态) ' + PROXY_CONFIG.httpProxy : '直连'));
 
 // Steam 登录二维码 URL 格式校验（与 steam-session LoginApprover.decodeQrUrl 保持一致）
 // 有效格式：https://s.team/q/<version>/<clientId>，可带 query
@@ -140,12 +191,10 @@ const STEAM_COMMUNITY = 'steamcommunity.com';
 
 // 获取 LoginSession 的代理选项
 function getSessionOptions() {
-  if (PROXY_CONFIG.socksProxy) {
-    return { socksProxy: PROXY_CONFIG.socksProxy };
-  }
-  if (PROXY_CONFIG.httpProxy) {
-    return { httpProxy: PROXY_CONFIG.httpProxy };
-  }
+  const socksProxy = PROXY_CONFIG.socksProxy;
+  if (socksProxy) return { socksProxy };
+  const httpProxy = PROXY_CONFIG.httpProxy;
+  if (httpProxy) return { httpProxy };
   return {};
 }
 
@@ -778,9 +827,10 @@ function steamApiRequest(method, endpoint, params, cookies, accessToken, extraHe
     }
 
     // 有 HTTP 代理时：先建立 CONNECT 隧道，再通过隧道发 HTTPS
-    if (PROXY_CONFIG.httpProxy) {
+    const httpProxy = PROXY_CONFIG.httpProxy; // 每次请求动态解析一次，避免重复读取不一致
+    if (httpProxy) {
       try {
-        const proxyUrl = new URL(PROXY_CONFIG.httpProxy);
+        const proxyUrl = new URL(httpProxy);
         const proxyHost = proxyUrl.hostname;
         const proxyPort = parseInt(proxyUrl.port) || 80;
 
@@ -815,6 +865,7 @@ function steamApiRequest(method, endpoint, params, cookies, accessToken, extraHe
           });
           httpsReq.on('error', (err) => {
             console.error('[steamApiRequest] HTTPS through proxy error:', err.message);
+            invalidateProxyCache(); // 代理端口可能已漂移，强制下次重新解析
             reject(err);
           });
           httpsReq.end(body || undefined);
@@ -822,12 +873,14 @@ function steamApiRequest(method, endpoint, params, cookies, accessToken, extraHe
 
         connectReq.on('error', (err) => {
           console.error('[steamApiRequest] CONNECT error:', err.message);
+          invalidateProxyCache();
           reject(err);
         });
         connectReq.end();
         return;
       } catch (e) {
         console.error('[steamApiRequest] 代理配置解析失败:', e.message);
+        invalidateProxyCache();
         reject(e);
         return;
       }
@@ -888,9 +941,10 @@ function steamCommunityRequest(method, path, params, cookies, referer, options) 
       headers['Content-Length'] = Buffer.byteLength(body);
     }
 
-    if (PROXY_CONFIG.httpProxy) {
+    const httpProxy = PROXY_CONFIG.httpProxy; // 每次请求动态解析一次，避免重复读取不一致
+    if (httpProxy) {
       try {
-        const proxyUrl = new URL(PROXY_CONFIG.httpProxy);
+        const proxyUrl = new URL(httpProxy);
         const proxyHost = proxyUrl.hostname;
         const proxyPort = parseInt(proxyUrl.port) || 80;
         const http = require('http');
@@ -907,11 +961,19 @@ function steamCommunityRequest(method, path, params, cookies, referer, options) 
         const timer = setTimeout(() => {
           timedOut = true;
           connectReq.destroy();
+          invalidateProxyCache(); // 超时也可能是代理端口漂移，强制下次重新解析
           reject(new Error('请求超时'));
         }, REQUEST_TIMEOUT);
 
         connectReq.on('connect', (res, socket) => {
           if (timedOut) return;
+          // 代理未正确建立隧道（非 200）时，直接报错并让缓存失效
+          if (res.statusCode !== 200) {
+            socket.destroy();
+            invalidateProxyCache();
+            reject(new Error('代理 CONNECT 失败: HTTP ' + res.statusCode));
+            return;
+          }
           clearTimeout(timer);
           const httpsReq = https.request({
             socket, hostname: STEAM_COMMUNITY, path, method, headers
@@ -923,13 +985,14 @@ function steamCommunityRequest(method, path, params, cookies, referer, options) 
               else { try { resolve(JSON.parse(data)); } catch { resolve({ raw: data, statusCode: httpsRes.statusCode }); } }
             });
           });
-          httpsReq.on('error', (err) => { if (!timedOut) reject(err); });
+          httpsReq.on('error', (err) => { invalidateProxyCache(); if (!timedOut) reject(err); });
           httpsReq.end(body || undefined);
         });
-        connectReq.on('error', (err) => { if (!timedOut) reject(err); });
+        connectReq.on('error', (err) => { invalidateProxyCache(); if (!timedOut) reject(err); });
         connectReq.end();
         return;
       } catch (e) {
+        invalidateProxyCache();
         reject(e);
         return;
       }

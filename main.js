@@ -26,12 +26,20 @@ console.log = (...a) => { const m = a.map(x => typeof x === 'object' ? JSON.stri
 console.error = (...a) => { const m = a.map(x => typeof x === 'object' ? JSON.stringify(x) : String(x)).join(' '); logStream.write('[E] ' + m + '\n'); origError.apply(console, a); };
 console.log('[main] 日志重定向已启用');
 
-// 代理配置（用于 steam-session 连接 Steam 服务器）
-// 优先使用环境变量指定的代理；未设置任何代理时默认直连（不再硬编码失效端口，避免 SSL WRONG_VERSION_NUMBER）
+// 代理配置
+// 默认直连：系统级代理变量（ALL_PROXY / HTTP_PROXY 等）由代理软件动态注入，端口会频繁变动或失效
+// （实测 10900 -> 10901 -> 10902 不断变化且常不可用）。若默认跟随，一旦端口失效就会把 HTTPS
+// 请求经 CONNECT 隧道发到死端口，触发 SSL WRONG_VERSION_NUMBER（交易确认加载失败、登录失败）。
+// 已验证当前环境可直连 Steam，故默认直连。如确需代理，请用专用变量显式指定，避免被系统变量干扰：
+//   STEAM_HTTP_PROXY=http://127.0.0.1:端口  npm start
+//   STEAM_SOCKS_PROXY=socks5://127.0.0.1:端口  npm start
 const PROXY_CONFIG = {
-  httpProxy: process.env.HTTP_PROXY || process.env.http_proxy || process.env.HTTPS_PROXY || process.env.https_proxy || process.env.ALL_PROXY || process.env.all_proxy || '',
-  socksProxy: process.env.SOCKS_PROXY || process.env.socks_proxy || ''
+  httpProxy: process.env.STEAM_HTTP_PROXY || '',
+  socksProxy: process.env.STEAM_SOCKS_PROXY || ''
 };
+console.log('[main] 网络模式:', PROXY_CONFIG.socksProxy
+  ? 'SOCKS 代理 ' + PROXY_CONFIG.socksProxy
+  : (PROXY_CONFIG.httpProxy ? 'HTTP 代理 ' + PROXY_CONFIG.httpProxy : '直连'));
 
 // Steam 登录二维码 URL 格式校验（与 steam-session LoginApprover.decodeQrUrl 保持一致）
 // 有效格式：https://s.team/q/<version>/<clientId>，可带 query
